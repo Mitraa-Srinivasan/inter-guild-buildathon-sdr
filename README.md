@@ -50,11 +50,11 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 
 | Step | Agent / action | Notes |
 | --- | --- | --- |
-| `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json`; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). |
+| `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json`; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). An `Escalate` decision is recorded as `qualified` and also queues a pending `approvals` row (`proposed_action_json`: `{ type: "icp_escalation", score, reasoning }`, linked to the icp activity). |
 | `run-research` | `research` / `enrich` | Raw text stored in `context_json.research`. |
 | `run-personalize` | `personalisation` / `draft_email` | Needs `qualified` + research. Prompt names the sender: the prospect's `assigned_rep_id`, else an active rep on the campaign (`campaign_reps`), using `reps.identity_for_outreach`. Stores `email_subject`, `email_body`, `email_snippets_used`. |
 | `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
-| `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. |
+| `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. A positive reply whose Next Action is "Book meeting" also inserts a `meetings` row (`scheduled_at` null, status `scheduled`; one pending per campaign prospect), noted in the same activity. |
 | `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
 | `run-voice` | `voice` / `call` | Requires the `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call`. |
 

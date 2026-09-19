@@ -2,6 +2,7 @@ const { supabase, unwrap } = require('../db/supabase');
 const { HttpError, notFound } = require('../lib/http');
 const { preSendGate } = require('./gate');
 const { callDronaHQAgent } = require('../agents/dronaHQ');
+const { logActivity } = require('./common');
 
 const DECISION_TO_STATE = { qualified: 'qualified', rejected: 'rejected', escalate: 'qualified' };
 
@@ -164,19 +165,36 @@ async function runIcp(campaignProspectId) {
       .single()
   );
 
-  unwrap(
-    await supabase.from('activities').insert({
-      campaign_id: cp.campaign_id,
-      prospect_id: cp.prospect_id,
-      agent_type: 'icp',
-      action_type: 'score',
-      input_summary: prompt,
-      output_summary: raw,
-      status: 'success',
-    })
-  );
+  const activityId = await logActivity(cp, 'icp', 'score', prompt, raw, 'success');
+
+  // An "Escalate" decision goes to a human: queue a pending approval pointing at this activity.
+  if (parsed.decision === 'escalate') await queueEscalationApproval(cp, activityId, parsed.score, reasoning);
 
   return { blocked: false, campaignProspect: updated };
+}
+
+// One pending ICP-escalation approval per campaign prospect: re-scoring to "Escalate" again doesn't add a duplicate.
+async function queueEscalationApproval(cp, activityId, score, reasoning) {
+  const pending = unwrap(
+    await supabase
+      .from('approvals')
+      .select('id')
+      .eq('campaign_id', cp.campaign_id)
+      .eq('prospect_id', cp.prospect_id)
+      .eq('status', 'pending')
+      .contains('proposed_action_json', { type: 'icp_escalation' })
+      .limit(1)
+  );
+  if (pending.length) return;
+  unwrap(
+    await supabase.from('approvals').insert({
+      campaign_id: cp.campaign_id,
+      prospect_id: cp.prospect_id,
+      activity_id: activityId,
+      proposed_action_json: { type: 'icp_escalation', score, reasoning },
+      status: 'pending',
+    })
+  );
 }
 
 module.exports = { runIcp, buildProspectSummary, formatIcpCriteria, parseIcpResponse };

@@ -16,19 +16,25 @@ async function loadCampaignProspect(id) {
   return cp;
 }
 
+// Inserts an activity row and returns its id.
 async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status, channel = null) {
-  unwrap(
-    await supabase.from('activities').insert({
-      campaign_id: cp.campaign_id,
-      prospect_id: cp.prospect_id,
-      agent_type: agentType,
-      action_type: actionType,
-      channel,
-      input_summary: inputSummary,
-      output_summary: outputSummary,
-      status,
-    })
+  const row = unwrap(
+    await supabase
+      .from('activities')
+      .insert({
+        campaign_id: cp.campaign_id,
+        prospect_id: cp.prospect_id,
+        agent_type: agentType,
+        action_type: actionType,
+        channel,
+        input_summary: inputSummary,
+        output_summary: outputSummary,
+        status,
+      })
+      .select('id')
+      .single()
   );
+  return row.id;
 }
 
 // Best effort: a failed run should leave a trace, but logging must never mask the original error.
@@ -91,7 +97,7 @@ function parseFields(raw, labels, agentName, { keepFormatting = [] } = {}) {
 // Shared pipeline for single-{prompt} agent steps:
 //   load -> pre-send gate -> precheck -> build prompt -> call agent -> parse -> apply writes -> log activity.
 // Agent-call and parse failures are logged as 'failed' activities and rethrown; nothing is written to the prospect.
-// step: { agentType, actionType, precheck?(cp), buildPrompt(cp), parse(raw, cp), apply(cp, parsed) -> updated row }
+// step: { agentType, actionType, precheck?(cp), buildPrompt(cp), parse(raw, cp), apply(cp, parsed, notes) -> updated row }
 // parse() may also validate against the campaign (cp.campaign); throwing there is logged like any parse failure.
 // Returns { blocked: true, reason } if the gate stops the run, otherwise { blocked: false, campaignProspect }.
 async function runAgentStep(campaignProspectId, step) {
@@ -121,8 +127,11 @@ async function runAgentStep(campaignProspectId, step) {
     throw err;
   }
 
-  const updated = await step.apply(cp, parsed);
-  await logActivity(cp, agentType, actionType, prompt, raw, 'success');
+  // apply() may push short notes about side effects it performed (e.g. "Meeting created"); they are stored
+  // with this step's activity instead of creating a separate activity.
+  const notes = [];
+  const updated = await step.apply(cp, parsed, notes);
+  await logActivity(cp, agentType, actionType, prompt, notes.length ? `${raw}\n\n${notes.join('\n')}` : raw, 'success');
   return { blocked: false, campaignProspect: updated };
 }
 
