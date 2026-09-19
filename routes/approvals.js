@@ -30,7 +30,12 @@ router.get('/', async (req, res) => {
   try {
     assertOneOf('status', req.query.status, APPROVAL_STATUS);
     const { from, to } = pageRange(req.query);
-    let q = supabase.from('approvals').select('*').order('created_at', { ascending: true }).range(from, to);
+    // The prospect and campaign are embedded so a queue can be shown without extra lookups.
+    let q = supabase
+      .from('approvals')
+      .select('*, prospect:prospects(id, name, title, company), campaign:campaigns(id, name)')
+      .order('created_at', { ascending: true })
+      .range(from, to);
     for (const f of ['status', 'campaign_id', 'prospect_id']) {
       if (req.query[f]) q = q.eq(f, req.query[f]);
     }

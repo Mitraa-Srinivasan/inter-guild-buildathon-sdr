@@ -28,4 +28,29 @@ router.patch('/', async (req, res) => {
   }
 });
 
+// Just the kill switch (the UI's topbar and Settings button). Body: { kill_switch_on: boolean }.
+router.get('/kill-switch', async (req, res) => {
+  try {
+    const data = unwrap(await supabase.from('global_settings').select('kill_switch_on, updated_at').eq('id', true).maybeSingle());
+    if (!data) throw new HttpError(500, 'global_settings row missing; re-run db/schema.sql');
+    res.json(data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.patch('/kill-switch', async (req, res) => {
+  try {
+    const on = req.body && req.body.kill_switch_on;
+    if (typeof on !== 'boolean') throw new HttpError(400, 'kill_switch_on must be a boolean');
+    const data = unwrap(
+      await supabase.from('global_settings').update({ kill_switch_on: on }).eq('id', true).select('kill_switch_on, updated_at').maybeSingle()
+    );
+    if (!data) throw new HttpError(500, 'global_settings row missing; re-run db/schema.sql');
+    res.json(data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 module.exports = router;

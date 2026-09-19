@@ -1,9 +1,13 @@
+const path = require('path');
 const express = require('express');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// The control-plane UI is served from the same origin as the API, so it needs no CORS.
+app.use(express.static(path.join(__dirname, 'frontend')));
 
 app.use('/campaigns/:id/prompt-versions', require('./routes/promptVersions'));
 app.use('/campaigns', require('./routes/campaigns'));

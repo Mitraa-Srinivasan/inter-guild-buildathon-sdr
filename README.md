@@ -46,7 +46,18 @@ lib/                 http.js (validation + error mapping), enums.js
 
 **Cost report:** `GET /campaigns/:id/cost-report` returns, from that campaign's activities and prospects: `total_cost`, `total_prospects`, `qualified_count` (funnel state qualified, contacted, engaged, meeting or opportunity), `cost_per_prospect`, `cost_per_qualified_lead`, `conversation_count` and `cost_per_conversation`. Costs are USD **estimates** (see below); a ratio is `null` when its divisor is 0.
 
+**Added for the UI:**
+- `PATCH /campaigns/:id/status` `{ status }` changes only the lifecycle status (Launch / Pause / Resume).
+- `GET /campaigns/:id/activities` is the campaign's activity log, newest first, with the prospect embedded. Filters: `?agent_type=`, `?status=`, `limit`, `offset`.
+- `GET` / `PATCH /global-settings/kill-switch` (`{ kill_switch_on }`).
+- `PATCH /reps/:id`, e.g. `{ active: false }` to offboard.
+- `GET /approvals` embeds `prospect` and `campaign` on each row.
+
 List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple filters (e.g. `?status=`, `?campaign_id=`).
+
+## Control-plane UI
+
+`npm start`, then open http://localhost:3000/. [frontend/index.html](frontend/index.html) is a single file served by the same Express app, so it talks to the API on the same origin (no CORS). Wired to live data: campaigns (list, Launch/Pause/Resume, create, duplicate, channel switches), the kill switch, prospects (per campaign and merged across campaigns), activity feed, analytics (from `cost-report`), prompt versions, per-campaign agent pause, approvals, reps, the suppression list and conversations (from each prospect's last classified reply). The Agents page stats, Integrations and Knowledge pages are still static placeholders. The feed re-polls every 15s.
 
 ## Orchestrator endpoints
 

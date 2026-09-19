@@ -10,7 +10,7 @@ const {
   notFound,
   HttpError,
 } = require('../lib/http');
-const { CAMPAIGN_STATUS, FUNNEL_STATE, AGENT_TYPES } = require('../lib/enums');
+const { CAMPAIGN_STATUS, FUNNEL_STATE, AGENT_TYPES, ACTIVITY_STATUS } = require('../lib/enums');
 const { buildCostReport } = require('../lib/costReport');
 
 const FIELDS = [
@@ -91,6 +91,43 @@ router.patch('/:id', async (req, res) => {
     );
     if (!data) throw notFound('Campaign');
     res.json(data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Change only the campaign's lifecycle status (Launch / Pause / Resume in the UI). Body: { status }.
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body || {};
+    requireFields({ status }, ['status']);
+    assertOneOf('status', status, CAMPAIGN_STATUS);
+    const data = unwrap(await supabase.from('campaigns').update({ status }).eq('id', req.params.id).select().maybeSingle());
+    if (!data) throw notFound('Campaign');
+    res.json(data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Activity log for one campaign, newest first, with the prospect embedded. Filters: ?agent_type=&status=&limit=&offset=
+router.get('/:id/activities', async (req, res) => {
+  try {
+    assertOneOf('status', req.query.status, ACTIVITY_STATUS);
+    assertOneOf('agent_type', req.query.agent_type, AGENT_TYPES.concat('dispatch'));
+    const campaign = unwrap(await supabase.from('campaigns').select('id').eq('id', req.params.id).maybeSingle());
+    if (!campaign) throw notFound('Campaign');
+    const { from, to } = pageRange(req.query);
+    let q = supabase
+      .from('activities')
+      .select('*, prospect:prospects(id, name, title, company)')
+      .eq('campaign_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    for (const f of ['agent_type', 'status']) {
+      if (req.query[f]) q = q.eq(f, req.query[f]);
+    }
+    res.json(unwrap(await q));
   } catch (err) {
     handleError(res, err);
   }
