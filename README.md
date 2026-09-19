@@ -9,6 +9,7 @@ Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-
 3. `npm install`
 4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" and "Voice AI Founders" (idempotent; re-running also adds missing rep links).
 5. `npm start` (or `npm run dev`), default port 3000.
+6. Optional: `npm run seed:demo` builds the demo pipeline by running fictional prospects through the **real** agents (about 40 DronaHQ calls, several minutes; nothing is sent anywhere). Per campaign, the sample profile is the "hero" taken through research, ICP, strategy, personalisation, dispatch, a positive reply and a follow-up, plus three more at other depths: one that stops after ICP, one dispatched with no reply (`contacted`), and one whose reply needs a human (a pending `reply_escalation` approval). It is resumable and skips any step already done, and it switches paused campaigns to live for the run and puts them back afterwards. The kill switch must be off.
 
 Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
 `ICP`, `RESEARCH`, `PERSONALIZE`, `STRATEGY`, `CONVERSATION`, `FOLLOWUP`, `VOICE`.

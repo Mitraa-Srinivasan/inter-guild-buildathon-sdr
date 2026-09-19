@@ -399,12 +399,14 @@ async function loadCampData(id){
 async function loadCosts(ids){await Promise.all(ids.map(async id=>{S.costs[id]=await api('GET',`/campaigns/${id}/cost-report`)}))}
 function taskFromApproval(a){
   const p=a.prospect||{},c=a.campaign||{},x=a.proposed_action_json||{};
-  const icp=x.type==='icp_escalation';
+  const icp=x.type==='icp_escalation',reply=x.type==='reply_escalation';
   return {id:a.id,campaign_id:a.campaign_id,prospect_id:a.prospect_id,
-    tag:icp?'ICP ESCALATION':String(x.type||'approval').replace(/_/g,' ').toUpperCase(),tagc:icp?'amber':'purple',
+    tag:icp?'ICP ESCALATION':reply?'REPLY NEEDS A HUMAN':String(x.type||'approval').replace(/_/g,' ').toUpperCase(),tagc:icp?'amber':reply?'red':'purple',
     who:p.name||'Unknown prospect',sub:[p.title,p.company,c.name].filter(Boolean).join(' · '),
-    body:{what:icp?`Scored ${x.score==null?'?':x.score} against the ICP. It was borderline, so the agent escalated instead of deciding.`:`Proposed action: ${JSON.stringify(x)}`,
-      rec:'Approve to release the hold so outreach can proceed. Reject to permanently block outreach to this prospect.',
+    body:{what:icp?`Scored ${x.score==null?'?':x.score} against the ICP. It was borderline, so the agent escalated instead of deciding.`
+        :reply?`Replied: "${x.reply_text||''}"${x.intent?` (classified: ${x.intent})`:''}`:`Proposed action: ${JSON.stringify(x)}`,
+      rec:reply&&x.next_action?`${x.next_action}. Approve to release the hold so outreach can continue; reject to permanently block outreach to this prospect.`
+        :'Approve to release the hold so outreach can proceed. Reject to permanently block outreach to this prospect.',
       why:x.reasoning||'No reasoning was recorded.'},
     btns:[['Approve','primary'],['Reject','danger']]};
 }
