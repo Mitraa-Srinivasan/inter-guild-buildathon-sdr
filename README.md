@@ -1,85 +1,90 @@
-# Autonomous SDR Platform
 
-A production-style SDR control plane built with a React frontend, Express backend, and mock-friendly integration layer for DronaHQ and voice-driven outbound sales workflows.
+# inter-guild-buildathon-sdr
 
-## Overview
+Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-agent orchestrator steps (Phase 2).
 
-This application is designed to demonstrate a real autonomous SDR product with:
+## Setup
 
-- campaign management
-- prospect qualification
-- AI research and personalization
-- DronaHQ agent communication layer
-- voice call orchestration and webhook handling
-- analytics and activity timeline
-- kill switch and campaign isolation
-- mock mode for local demos without external credentials
+1. Create a Supabase project, then run [db/schema.sql](db/schema.sql) in the SQL editor (safe to re-run).
+2. `cp .env.example .env` and fill in the values (see below). Use the **service_role** Supabase key; RLS is on with no policies.
+3. `npm install`
+4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" (idempotent).
+5. `npm start` (or `npm run dev`), default port 3000.
 
-## Tech stack
+Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
+`ICP`, `RESEARCH`, `PERSONALIZE`, `STRATEGY`, `CONVERSATION`, `FOLLOWUP`, `VOICE`.
 
-- Frontend: React + Vite
-- Backend: Node.js + Express
-- Database: PostgreSQL + Prisma (ready for migration)
-- AI abstractions: OpenAI-ready backend layer
-- Agentic integration: DronaHQ integration module
-- Real-time updates: Socket.IO
-- Validation: Zod
-- Auth: JWT + bcrypt
+## Layout
 
-## Folder structure
+```
+app.js / server.js   Express app (exported for reuse) / listener
+db/                  schema.sql, supabase.js client, seed.js
+routes/              one router per resource
+orchestrator/        gate.js (pre-send gate), one module per agent step, common.js (step runner + parser),
+                     history.js (recent-activity prompt section), channels.js (enabled channels + safety net)
+agents/dronaHQ.js    DronaHQ webhook client
+lib/                 http.js (validation + error mapping), enums.js
+```
 
-- backend/
-  - src/
-  - .env.example
-- frontend/
-  - src/
-- database/
-- docs/
-- package.json
+## CRUD endpoints
 
-## Local setup
+| Resource | Endpoints |
+| --- | --- |
+| campaigns | `POST /campaigns`, `GET /campaigns`, `GET /campaigns/:id`, `PATCH /campaigns/:id` |
+| campaign prospects | `POST /campaign-prospects`, `GET /campaigns/:id/campaign-prospects` |
+| prospects | `POST /prospects`, `GET /prospects/:id` |
+| activities | `POST /activities`, `GET /activities` |
+| reps | `POST /reps`, `GET /reps` |
+| campaign reps | `POST /campaign-reps`, `GET /campaign-reps` |
+| suppression list | `POST /suppression-list`, `GET /suppression-list` |
+| global settings | `GET /global-settings`, `PATCH /global-settings` |
+| approvals | `POST /approvals`, `GET /approvals`, `GET /approvals/:id`, `PATCH /approvals/:id` |
+| meetings | `POST /meetings`, `GET /meetings` |
 
-1. Install dependencies:
-   npm install
-2. Copy environment file:
-   copy backend\.env.example backend\.env
-3. Start backend:
-   npm run dev --workspace backend
-4. Start frontend:
-   npm run dev --workspace frontend
-5. Open frontend at http://localhost:5173
+List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple filters (e.g. `?status=`, `?campaign_id=`).
 
-## Environment variables
+## Orchestrator endpoints
 
-The backend expects values like:
+All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send gate: **423** with
+`{ blocked: true, reason }` if the global kill switch is on (`kill_switch_on`) or the campaign isn't live
+(`campaign_not_live`). Every run writes an `activities` row (`failed` on agent/parse errors, with the reason).
 
-- DATABASE_URL
-- DIRECT_URL
-- JWT_SECRET
-- OPENAI_API_KEY
-- DRONAHQ_API_KEY
-- DRONAHQ_VOICE_AGENT_ID
-- DRONAHQ_WORKSPACE_ID
-- MOCK_MODE=true
+| Step | Agent / action | Notes |
+| --- | --- | --- |
+| `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json`; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). |
+| `run-research` | `research` / `enrich` | Raw text stored in `context_json.research`. |
+| `run-personalize` | `personalisation` / `draft_email` | Needs `qualified` + research. Prompt names the sender: the prospect's `assigned_rep_id`, else an active rep on the campaign (`campaign_reps`), using `reps.identity_for_outreach`. Stores `email_subject`, `email_body`, `email_snippets_used`. |
+| `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
+| `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. |
+| `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
+| `run-voice` | `voice` / `call` | Requires the `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call`. |
 
-## DronaHQ integration
+## Dispatch and the conflict gate
 
-The integration layer exists under:
+`POST /campaign-prospects/:id/dispatch` with body `{ channel }` is the step that decides whether an actual outreach action
+may happen. **It is simulated: nothing is sent**; it records the dispatch and advances the funnel.
 
-- backend/src/integrations/dronahq/
+1. `gate.js` runs first (kill switch / campaign live): **423** on failure, unchanged.
+2. The channel must be enabled for the campaign, then `checkConflicts` in [orchestrator/conflict.js](orchestrator/conflict.js)
+   runs its checks in order and stops at the first failure:
 
-It includes the client and voice/webhook abstractions while keeping API keys on the server.
+   | reason | Meaning |
+   | --- | --- |
+   | `suppressed` | Prospect's email is in `suppression_list` (scope `global`, compared lowercased). |
+   | `active_in_other_campaign` | Same prospect is in another **live** campaign with a non-failed activity in the last 48h. `details` = that campaign's name. |
+   | `frequency_cap_exceeded` | 3 or more successful dispatches to this campaign prospect in the last 7 days. |
+   | `daily_limit_reached` | Successful dispatches today (UTC) for the campaign on this channel reached `daily_limits[channel]`. No limit set = unlimited. |
 
-## Mock mode
+3. A deny returns **409** `{ blocked: true, reason, details }` and logs a `failed` `dispatch` activity with the reason
+   (`channel_not_enabled` is reported the same way). An allow logs a `success` `dispatch` activity and moves
+   `discovered` / `researched` / `qualified` to `contacted`; later stages and `rejected` are left as they are.
 
-When MOCK_MODE is enabled, the system uses the mock service to simulate agent output and call outcomes so the product can run without third-party credentials.
+Only `success` dispatches count toward the caps, so denied attempts never lock a prospect out.
 
-## Deployment and testing
+**Channel safety net:** for `run-strategy` and `run-followup`, if the agent recommends a channel that isn't enabled in the
+campaign's `channel_config` (`enabled: true`), the run returns **422**, logs a `failed` activity noting the mismatch, and
+stores nothing.
 
-- backend: node src/server.js
-- frontend: npm run build
-- tests: npm run test --workspace backend -- --runInBand
+Errors: `400` validation / precondition, `404` not found, `409` unique violation, `422` bad foreign key or channel mismatch,
+`423` blocked by the gate, `500` unexpected or unparseable agent output, `502` DronaHQ call failed.
 
-## Notes
-
-This codebase intentionally keeps the core product flow working in a demo-ready state while preserving real integration boundaries for a production upgrade.
