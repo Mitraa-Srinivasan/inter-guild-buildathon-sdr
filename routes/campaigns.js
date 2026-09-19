@@ -12,6 +12,8 @@ const {
 } = require('../lib/http');
 const { CAMPAIGN_STATUS, FUNNEL_STATE, AGENT_TYPES, ACTIVITY_STATUS } = require('../lib/enums');
 const { buildCostReport } = require('../lib/costReport');
+const { runDiscovery } = require('../orchestrator/discovery');
+const { runDiscoverAndQualify } = require('../orchestrator/discoverAndQualify');
 
 const FIELDS = [
   'name', 'description', 'owner', 'status', 'icp_json', 'channel_config', 'daily_limits', 'enabled_agents', 'sample_profiles',
@@ -96,6 +98,43 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// Find new prospects for this campaign from its ICP (Tavily search + Groq extraction). Adds them as 'discovered' and logs one
+// 'discovery' activity. Body: { limit? } (default 5, max 10). Contacts nobody and calls no DronaHQ agent, so it is safe and cheap.
+// 423 { blocked, reason } if the kill switch is on, 503 if GROQ_API_KEY / TAVILY_API_KEY are not set, 502 if Tavily or Groq fails.
+router.post('/:id/discover', async (req, res) => {
+  try {
+    const result = await runDiscovery(req.params.id, { limit: req.body && req.body.limit });
+    if (result.blocked) return res.status(423).json({ blocked: true, reason: result.reason });
+    res.json({
+      campaign_id: req.params.id,
+      queries: result.queries,
+      found: result.found,
+      created: result.created.map((c) => ({ campaign_prospect_id: c.campaign_prospect.id, reused_prospect: c.reused_prospect, prospect: c.prospect })),
+      skipped: result.skipped,
+      usage: result.usage,
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Discover, then run research and ICP scoring on every NEW prospect. THIS CALLS THE REAL DronaHQ AGENTS AND SPENDS CREDITS, so it
+// only runs on an explicit human action: the body must carry { confirm_spend: true } (the UI sends it only after a confirmation
+// dialog), and nothing else in the system calls it. Body: { confirm_spend: true, limit? }.
+// Per-prospect failures are reported in the 200 response; a gate block (kill switch / campaign not live / agent paused) stops the rest.
+router.post('/:id/discover-and-qualify', async (req, res) => {
+  try {
+    if (!req.body || req.body.confirm_spend !== true) {
+      throw new HttpError(400, 'discover-and-qualify calls the real DronaHQ agents and spends credits. Send { "confirm_spend": true } to confirm you want that.');
+    }
+    const result = await runDiscoverAndQualify(req.params.id, { limit: req.body.limit });
+    if (result.blocked) return res.status(423).json({ blocked: true, reason: result.reason });
+    res.json({ campaign_id: req.params.id, ...result });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // Change only the campaign's lifecycle status (Launch / Pause / Resume in the UI). Body: { status }.
 router.patch('/:id/status', async (req, res) => {
   try {
@@ -114,7 +153,7 @@ router.patch('/:id/status', async (req, res) => {
 router.get('/:id/activities', async (req, res) => {
   try {
     assertOneOf('status', req.query.status, ACTIVITY_STATUS);
-    assertOneOf('agent_type', req.query.agent_type, AGENT_TYPES.concat('dispatch'));
+    assertOneOf('agent_type', req.query.agent_type, AGENT_TYPES.concat('dispatch', 'discovery'));
     const campaign = unwrap(await supabase.from('campaigns').select('id').eq('id', req.params.id).maybeSingle());
     if (!campaign) throw notFound('Campaign');
     const { from, to } = pageRange(req.query);

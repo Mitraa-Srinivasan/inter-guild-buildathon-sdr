@@ -87,6 +87,15 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 tokens = (input chars + output chars) / 4, priced with a per-agent credits-per-1k-tokens table at 500 credits = $1. They leave out each
 agent's own instructions on the DronaHQ side. Rows with no LLM (`dispatch`) and runs where the agent never answered record 0.
 
+## Prospect discovery
+
+Needs `GROQ_API_KEY` and `TAVILY_API_KEY` in `.env` (optionally `GROQ_MODEL`, default `llama-3.3-70b-versatile`). Neither is a DronaHQ service, so **discovery spends no DronaHQ credits**; without the keys it answers 503.
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /campaigns/:id/discover` | Body `{ limit? }` (default 5, max 10). Builds up to 3 web searches from the campaign's `icp_json`, has Groq extract the people the results actually name (it is told never to invent a person, title, email or LinkedIn URL), and adds them as `discovered` prospects with `source: 'discovery'` and the source URL and fit reason in `company_data_json`. Emails and LinkedIn URLs are kept only if they look real. Someone who already exists (same email, LinkedIn URL, or name at the same company) is linked to this campaign instead of duplicated. Logs one `discovery` activity with Groq's token count and an estimated cost (Groq list price plus $0.008 per Tavily search). 423 if the kill switch is on. Contacts nobody. |
+| `POST /campaigns/:id/discover-and-qualify` | **Calls the real DronaHQ agents and spends credits.** Runs discovery, then `run-research` and `run-icp` on each new prospect, one at a time. It refuses (400) unless the body has `confirm_spend: true`, the UI sends that only after a confirmation dialog, and nothing else in the code calls it. Returns a per-prospect result (`qualified`, `rejected`, `failed`, `blocked`, `skipped`) and a summary. One prospect failing does not stop the others; a gate block (kill switch, campaign not live, agent paused) stops the rest; three failures in a row stop the batch. It never dispatches anything. |
+
 ## Campaign-specific guidance (prompt versions)
 
 DronaHQ's own agent Instructions stay global. What a campaign *can* have is supplementary guidance, versioned and tracked:
