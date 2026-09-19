@@ -13,8 +13,28 @@ const AGENTS = {
   voice: { urlEnv: 'DRONAHQ_VOICE_WEBHOOK_URL', keyEnv: 'DRONAHQ_VOICE_WEBHOOK_KEY' },
 };
 
-// POSTs a JSON payload to the agent's webhook trigger and returns the text in the envelope's `response` field.
+const GUARDRAIL_RETRY_DELAY_MS = 1500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Sends the payload; if the agent's guardrail refuses it, waits briefly and sends the exact same payload once more.
+// The refusals are intermittent (the same prompt passes moments later), so one retry clears most of them. Only a
+// guardrail refusal is retried: timeouts, HTTP errors and malformed payloads fail immediately as before.
 async function postWebhook(agentType, payload) {
+  let text = await postWebhookOnce(agentType, payload);
+  if (isGuardrailBlock(text)) {
+    await sleep(GUARDRAIL_RETRY_DELAY_MS);
+    text = await postWebhookOnce(agentType, payload);
+    // A guardrail block comes back as a normal 200 whose "response" is the refusal text. Without this it would flow on
+    // to the parser and surface as a misleading 500 ("could not parse Subject").
+    if (isGuardrailBlock(text)) {
+      throw new HttpError(502, `Agent blocked by guardrail: the DronaHQ ${agentType} agent refused the request ("${text.trim()}")`);
+    }
+  }
+  return text;
+}
+
+// POSTs a JSON payload to the agent's webhook trigger once and returns the text in the envelope's `response` field.
+async function postWebhookOnce(agentType, payload) {
   const cfg = AGENTS[agentType];
   if (!cfg) throw new HttpError(500, `No DronaHQ webhook configured for agent type "${agentType}"`);
   const url = process.env[cfg.urlEnv];
@@ -46,11 +66,6 @@ async function postWebhook(agentType, payload) {
   }
   if (!json || json.success === false || typeof json.response !== 'string') {
     throw new HttpError(502, `DronaHQ agent returned an unexpected payload: ${text.slice(0, 200)}`);
-  }
-  // A guardrail block comes back as a normal 200 whose "response" is the refusal text. Without this it would flow on
-  // to the parser and surface as a misleading 500 ("could not parse Subject").
-  if (isGuardrailBlock(json.response)) {
-    throw new HttpError(502, `Agent blocked by guardrail: the DronaHQ ${agentType} agent refused the request ("${json.response.trim()}")`);
   }
   return json.response;
 }

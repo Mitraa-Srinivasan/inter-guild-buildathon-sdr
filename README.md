@@ -110,4 +110,4 @@ campaign's `channel_config` (`enabled: true`), the run returns **422**, logs a `
 stores nothing.
 
 Errors: `400` validation / precondition, `404` not found, `409` unique violation, `422` bad foreign key or channel mismatch,
-`423` blocked by the gate (`kill_switch_on`, `campaign_not_live` or `agent_paused`), `500` unexpected or unparseable agent output, `502` DronaHQ call failed or the agent's guardrail refused the request ("Agent blocked by guardrail: ..."; logged as a failed activity, nothing is written to the prospect).
+`423` blocked by the gate (`kill_switch_on`, `campaign_not_live` or `agent_paused`), `500` unexpected or unparseable agent output, `502` DronaHQ call failed or the agent's guardrail refused the request ("Agent blocked by guardrail: ..."; logged as a failed activity, nothing is written to the prospect). Guardrail refusals are intermittent, so the client waits 1.5s and re-sends the identical request **once** before giving up; only a guardrail refusal is retried (timeouts, HTTP errors and unparseable replies fail immediately).
