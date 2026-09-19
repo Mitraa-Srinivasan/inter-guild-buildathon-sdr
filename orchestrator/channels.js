@@ -1,3 +1,4 @@
+const { supabase } = require('../db/supabase');
 const { HttpError } = require('../lib/http');
 
 // Values an agent may use to say "no channel right now" (e.g. Contact Now: no). Never executable, so always safe.
@@ -29,4 +30,26 @@ function assertChannelAllowed(value, channels, agentName) {
   );
 }
 
-module.exports = { enabledChannels, availableChannelsLine, assertChannelAllowed };
+// Channels paused for the whole platform (global_settings.channels, e.g. { email: { enabled: false } }), as a Set of
+// lowercase names. A missing column (schema not yet updated) means nothing is paused rather than every dispatch failing.
+async function globallyPausedChannels() {
+  const { data, error } = await supabase.from('global_settings').select('channels').eq('id', true).maybeSingle();
+  if (error) {
+    if (error.code === '42703') return new Set();
+    throw error;
+  }
+  return pausedFrom(data && data.channels);
+}
+
+function pausedFrom(channels) {
+  return new Set(
+    Object.entries(channels || {})
+      .filter(([, v]) => v === false || (v && typeof v === 'object' && v.enabled === false))
+      .map(([k]) => normalize(k))
+  );
+}
+
+// 'phone' is the same channel as 'voice' for global pauses.
+const globalChannelName = (channel) => (normalize(channel) === 'phone' ? 'voice' : normalize(channel));
+
+module.exports = { enabledChannels, availableChannelsLine, assertChannelAllowed, globallyPausedChannels, globalChannelName };

@@ -1,13 +1,15 @@
 const { supabase, unwrap } = require('../db/supabase');
 const { loadCampaignProspect } = require('./common');
+const { globallyPausedChannels, globalChannelName } = require('./channels');
 
 // Deterministic conflict gate: decides whether an actual outreach action (a dispatch) may happen.
 // Separate from gate.js, which only checks the kill switch and campaign status.
 
 const HOUR = 3600 * 1000;
 const CROSS_CAMPAIGN_WINDOW_MS = 48 * HOUR;
-const FREQUENCY_WINDOW_MS = 7 * 24 * HOUR;
+const FREQUENCY_WINDOW_MS = 7 * 24 * HOUR; // keep in step with FREQUENCY_WINDOW_DAYS
 const FREQUENCY_CAP = 3;
+const FREQUENCY_WINDOW_DAYS = 7;
 
 const allow = () => ({ allowed: true, reason: null, details: '' });
 const deny = (reason, details = '') => ({ allowed: false, reason, details });
@@ -54,12 +56,19 @@ async function countDispatches(narrow) {
 }
 
 // Returns { allowed, reason, details }. Checks run in order and stop at the first failure:
+//   0. channel_paused (global)
 //   1. suppressed                 2. prospect_rejected
 //   3. approval_rejected / pending_approval   4. active_in_other_campaign
 //   5. frequency_cap_exceeded     6. daily_limit_reached
 // options.channel selects which channel's daily limit applies (no channel -> no daily limit).
 async function checkConflicts(campaignProspectId, { channel } = {}) {
   const cp = await loadCampaignProspect(campaignProspectId);
+
+  // 0. Channel paused for the whole platform (Settings > Channel pause). This is on top of the campaign's own
+  //    channel_config, which the callers check separately.
+  if (channel && (await globallyPausedChannels()).has(globalChannelName(channel))) {
+    return deny('channel_paused', `"${globalChannelName(channel)}" is paused globally for every campaign`);
+  }
 
   // 1. Global suppression list (values are stored trimmed + lowercased).
   const email = typeof cp.prospect.email === 'string' ? cp.prospect.email.trim().toLowerCase() : '';
@@ -140,4 +149,4 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
   return allow();
 }
 
-module.exports = { checkConflicts, dailyLimitFor, toNumber, FREQUENCY_CAP };
+module.exports = { checkConflicts, dailyLimitFor, toNumber, FREQUENCY_CAP, FREQUENCY_WINDOW_DAYS };

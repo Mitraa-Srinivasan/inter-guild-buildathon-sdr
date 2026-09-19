@@ -52,6 +52,10 @@ lib/                 http.js (validation + error mapping), enums.js
 - `GET /campaigns/:id/activities` is the campaign's activity log, newest first, with the prospect embedded. Filters: `?agent_type=`, `?status=`, `limit`, `offset`.
 - `GET` / `PATCH /global-settings/kill-switch` (`{ kill_switch_on }`).
 - `PATCH /reps/:id`, e.g. `{ active: false }` to offboard.
+- `GET /health/services` reports the backend, Supabase and DronaHQ. DronaHQ is only checked as *configured* (all 7 webhook URLs and keys set), never called, because agent runs cost credits.
+- `GET /activities/spend?since=<ISO>` is the total estimated cost since a moment (default the start of the UTC day), for the sidebar's "AI spend today".
+- `GET /global-settings/guardrails` is a read-only summary: suppression count and the max-touches cap (3 successful dispatches per prospect per campaign in 7 days, set in `orchestrator/conflict.js`).
+- `GET` / `PATCH /global-settings/channels` is the **global channel pause**. Body `{ "email": false }` pauses email for every campaign and `{ "email": true }` resumes it; the PATCH merges, so other channels are untouched. Channels: `email`, `linkedin`, `sms`, `voice` (`phone` counts as `voice`). It needs the `global_settings.channels` column: run [db/schema.sql](db/schema.sql) again (safe to re-run). Until then these endpoints return 503 and nothing is treated as paused.
 - `GET /approvals` embeds `prospect` and `campaign` on each row.
 
 List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple filters (e.g. `?status=`, `?campaign_id=`).
@@ -104,6 +108,7 @@ may happen. **It is simulated: nothing is sent**; it records the dispatch and ad
 
    | reason | Meaning |
    | --- | --- |
+   | `channel_paused` | Checked first. The channel is paused globally (Settings > Channel pause), on top of the campaign's own `channel_config`. `phone` counts as `voice`. |
    | `suppressed` | Prospect's email is in `suppression_list` (scope `global`, compared lowercased). |
    | `prospect_rejected` | The campaign prospect's `funnel_state` is `rejected` (ICP scoring said no). |
    | `approval_rejected` | This campaign prospect has a `rejected` row in `approvals`: a reviewer said no, so it is a **permanent** deny (checked before pending ones). `details` = the approval id and type. |

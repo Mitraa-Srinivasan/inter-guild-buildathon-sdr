@@ -136,6 +136,9 @@ create table if not exists global_settings (
   kill_switch_on boolean not null default false,
   updated_at     timestamptz not null default now()
 );
+-- Global channel pause: { "<channel>": { "enabled": false } } pauses that channel for every campaign (default {} = none paused).
+-- For databases created before this column existed:
+alter table global_settings add column if not exists channels jsonb not null default '{}'::jsonb;
 insert into global_settings (id) values (true) on conflict do nothing;
 
 -- approvals ------------------------------------------------------------------
