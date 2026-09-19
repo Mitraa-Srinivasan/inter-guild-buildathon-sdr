@@ -40,6 +40,8 @@ lib/                 http.js (validation + error mapping), enums.js
 | approvals | `POST /approvals`, `GET /approvals`, `GET /approvals/:id`, `PATCH /approvals/:id` |
 | meetings | `POST /meetings`, `GET /meetings` |
 
+**Cost report:** `GET /campaigns/:id/cost-report` returns, from that campaign's activities and prospects: `total_cost`, `total_prospects`, `qualified_count` (funnel state qualified, contacted, engaged, meeting or opportunity), `cost_per_prospect`, `cost_per_qualified_lead`, `conversation_count` and `cost_per_conversation`. Costs are USD **estimates** (see below); a ratio is `null` when its divisor is 0.
+
 List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple filters (e.g. `?status=`, `?campaign_id=`).
 
 ## Orchestrator endpoints

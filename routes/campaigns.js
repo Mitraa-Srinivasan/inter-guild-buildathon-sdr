@@ -10,6 +10,7 @@ const {
   notFound,
 } = require('../lib/http');
 const { CAMPAIGN_STATUS, FUNNEL_STATE } = require('../lib/enums');
+const { buildCostReport } = require('../lib/costReport');
 
 const FIELDS = ['name', 'description', 'owner', 'status', 'icp_json', 'channel_config', 'daily_limits'];
 
@@ -58,6 +59,17 @@ router.patch('/:id', async (req, res) => {
     );
     if (!data) throw notFound('Campaign');
     res.json(data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Cost report from this campaign's activities (costs are estimates). Ratios are null when the divisor is 0.
+router.get('/:id/cost-report', async (req, res) => {
+  try {
+    const campaign = unwrap(await supabase.from('campaigns').select('id, name').eq('id', req.params.id).maybeSingle());
+    if (!campaign) throw notFound('Campaign');
+    res.json(await buildCostReport(campaign));
   } catch (err) {
     handleError(res, err);
   }
