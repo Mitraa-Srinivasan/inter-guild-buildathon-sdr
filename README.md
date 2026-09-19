@@ -65,12 +65,13 @@ may happen. **It is simulated: nothing is sent**; it records the dispatch and ad
 
 1. `gate.js` runs first (kill switch / campaign live): **423** on failure, unchanged.
 2. The channel must be enabled for the campaign, then `checkConflicts` in [orchestrator/conflict.js](orchestrator/conflict.js)
-   runs its checks in order and stops at the first failure:
+   runs its checks in order (as listed) and stops at the first failure:
 
    | reason | Meaning |
    | --- | --- |
    | `suppressed` | Prospect's email is in `suppression_list` (scope `global`, compared lowercased). |
-   | `active_in_other_campaign` | Same prospect is in another **live** campaign with a non-failed activity in the last 48h. `details` = that campaign's name. |
+   | `prospect_rejected` | The campaign prospect's `funnel_state` is `rejected` (ICP scoring said no). |
+   | `active_in_other_campaign` | Same prospect is in another **live** campaign with a successful `dispatch` in the last 48h (other activity types, e.g. research/ICP, never count). `details` = that campaign's name. |
    | `frequency_cap_exceeded` | 3 or more successful dispatches to this campaign prospect in the last 7 days. |
    | `daily_limit_reached` | Successful dispatches today (UTC) for the campaign on this channel reached `daily_limits[channel]`. No limit set = unlimited. |
 

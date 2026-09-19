@@ -54,8 +54,9 @@ async function countDispatches(narrow) {
 }
 
 // Returns { allowed, reason, details }. Checks run in order and stop at the first failure:
-//   1. suppressed                 2. active_in_other_campaign
-//   3. frequency_cap_exceeded     4. daily_limit_reached
+//   1. suppressed                 2. prospect_rejected
+//   3. active_in_other_campaign   4. frequency_cap_exceeded
+//   5. daily_limit_reached
 // options.channel selects which channel's daily limit applies (no channel -> no daily limit).
 async function checkConflicts(campaignProspectId, { channel } = {}) {
   const cp = await loadCampaignProspect(campaignProspectId);
@@ -67,8 +68,12 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
     if (hit.length) return deny('suppressed', 'prospect email is on the global suppression list');
   }
 
-  // 2. Same prospect in another live campaign with (non-failed) activity in the last 48h.
-  //    Failed activities are ignored so that a denied dispatch in one campaign can't itself block the other.
+  // 2. A prospect that ICP scoring rejected is never contacted.
+  if (cp.funnel_state === 'rejected') return deny('prospect_rejected', "prospect is in funnel_state 'rejected'");
+
+  // 3. Same prospect in another live campaign with a (non-failed) dispatch in the last 48h.
+  //    Only dispatches count: research/ICP/etc. running on the prospect in two campaigns must not block outreach.
+  //    Failed dispatches are ignored so that a denied dispatch in one campaign can't itself block the other.
   const links = unwrap(
     await supabase
       .from('campaign_prospects')
@@ -84,6 +89,7 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
         .select('campaign_id')
         .eq('prospect_id', cp.prospect_id)
         .in('campaign_id', liveOthers.map((l) => l.campaign_id))
+        .eq('action_type', 'dispatch')
         .neq('status', 'failed')
         .gte('created_at', isoAgo(CROSS_CAMPAIGN_WINDOW_MS))
         .order('created_at', { ascending: false })
@@ -94,7 +100,7 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
     }
   }
 
-  // 3. Frequency cap: successful dispatches to this campaign_prospect in the last 7 days.
+  // 4. Frequency cap: successful dispatches to this campaign_prospect in the last 7 days.
   const recentDispatches = await countDispatches((q) =>
     q.eq('campaign_id', cp.campaign_id).eq('prospect_id', cp.prospect_id).gte('created_at', isoAgo(FREQUENCY_WINDOW_MS))
   );
@@ -102,7 +108,7 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
     return deny('frequency_cap_exceeded', `${recentDispatches} dispatches in the last 7 days (cap ${FREQUENCY_CAP})`);
   }
 
-  // 4. Daily limit: successful dispatches today (UTC) across the whole campaign, on this channel.
+  // 5. Daily limit: successful dispatches today (UTC) across the whole campaign, on this channel.
   const limit = dailyLimitFor(cp.campaign.daily_limits, channel);
   if (limit !== null) {
     const today = await countDispatches((q) => q.eq('campaign_id', cp.campaign_id).eq('channel', channel).gte('created_at', startOfUtcDay()));
