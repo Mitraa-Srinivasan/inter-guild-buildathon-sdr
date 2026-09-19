@@ -8,17 +8,37 @@ const {
   assertNotEmpty,
   pageRange,
   notFound,
+  HttpError,
 } = require('../lib/http');
-const { CAMPAIGN_STATUS, FUNNEL_STATE } = require('../lib/enums');
+const { CAMPAIGN_STATUS, FUNNEL_STATE, AGENT_TYPES } = require('../lib/enums');
 const { buildCostReport } = require('../lib/costReport');
 
-const FIELDS = ['name', 'description', 'owner', 'status', 'icp_json', 'channel_config', 'daily_limits'];
+const FIELDS = [
+  'name', 'description', 'owner', 'status', 'icp_json', 'channel_config', 'daily_limits', 'enabled_agents',
+];
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// enabled_agents: { <agent_type>: boolean }. Agents not listed (or not false) are enabled. Unknown agent names are
+// rejected so a typo can't silently leave an agent running.
+function validateEnabledAgents(v) {
+  if (!isPlainObject(v)) throw new HttpError(400, 'enabled_agents must be an object like { "voice": false }');
+  for (const [agent, enabled] of Object.entries(v)) {
+    if (!AGENT_TYPES.includes(agent)) throw new HttpError(400, `enabled_agents: unknown agent "${agent}" (valid: ${AGENT_TYPES.join(', ')})`);
+    if (typeof enabled !== 'boolean') throw new HttpError(400, `enabled_agents.${agent} must be true or false`);
+  }
+}
+
+function validateCampaignBody(body) {
+  assertOneOf('status', body.status, CAMPAIGN_STATUS);
+  if (body.enabled_agents !== undefined) validateEnabledAgents(body.enabled_agents);
+}
 
 router.post('/', async (req, res) => {
   try {
     const body = pick(req.body, FIELDS);
     requireFields(body, ['name']);
-    assertOneOf('status', body.status, CAMPAIGN_STATUS);
+    validateCampaignBody(body);
     const data = unwrap(await supabase.from('campaigns').insert(body).select().single());
     res.status(201).json(data);
   } catch (err) {
@@ -53,7 +73,14 @@ router.patch('/:id', async (req, res) => {
   try {
     const body = pick(req.body, FIELDS);
     assertNotEmpty(body);
-    assertOneOf('status', body.status, CAMPAIGN_STATUS);
+    validateCampaignBody(body);
+    // enabled_agents is MERGED into what's stored, so pausing one agent never re-enables another that was paused earlier.
+    // Send { "voice": true } to re-enable an agent.
+    if (body.enabled_agents !== undefined) {
+      const current = unwrap(await supabase.from('campaigns').select('enabled_agents').eq('id', req.params.id).maybeSingle());
+      if (!current) throw notFound('Campaign');
+      body.enabled_agents = { ...(current.enabled_agents || {}), ...body.enabled_agents };
+    }
     const data = unwrap(
       await supabase.from('campaigns').update(body).eq('id', req.params.id).select().maybeSingle()
     );

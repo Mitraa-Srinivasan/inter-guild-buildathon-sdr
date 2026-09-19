@@ -26,7 +26,7 @@ function buildResearchPrompt(prospect) {
 async function runResearch(campaignProspectId) {
   const cp = await loadCampaignProspect(campaignProspectId);
 
-  const reason = await preSendGate(cp.campaign);
+  const reason = await preSendGate(cp.campaign, 'research');
   if (reason) return { blocked: true, reason };
 
   const guidance = await loadActiveGuidance(cp.campaign_id, 'research');

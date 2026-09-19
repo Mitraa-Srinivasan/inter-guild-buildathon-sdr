@@ -177,7 +177,7 @@ async function runAgentStep(campaignProspectId, step) {
   const cp = await loadCampaignProspect(campaignProspectId);
   const channel = step.channel ? step.channel(cp) : null;
 
-  const reason = await preSendGate(cp.campaign);
+  const reason = await preSendGate(cp.campaign, agentType);
   if (reason) return { blocked: true, reason };
 
   if (step.precheck) step.precheck(cp);

@@ -21,9 +21,12 @@ create table if not exists campaigns (
   icp_json       jsonb not null default '{}'::jsonb,  -- roles, geo, company criteria, exclusions
   channel_config jsonb not null default '{}'::jsonb,
   daily_limits   jsonb not null default '{}'::jsonb,
+  enabled_agents jsonb not null default '{}'::jsonb,  -- { "<agent_type>": false } pauses that agent; anything not false is enabled
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
+-- For databases created before this column existed (create table if not exists won't add them):
+alter table campaigns add column if not exists enabled_agents  jsonb not null default '{}'::jsonb;
 
 -- reps -----------------------------------------------------------------------
 create table if not exists reps (

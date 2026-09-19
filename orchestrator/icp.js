@@ -123,7 +123,7 @@ async function runIcp(campaignProspectId) {
   );
   if (!cp) throw notFound('Campaign prospect');
 
-  const reason = await preSendGate(cp.campaign);
+  const reason = await preSendGate(cp.campaign, 'icp');
   if (reason) return { blocked: true, reason };
 
   // Campaign-specific guidance goes onto the prospect_summary the agent receives (icp_criteria stays as is).

@@ -53,7 +53,7 @@ function parseEmailDraft(raw) {
 async function runPersonalize(campaignProspectId) {
   const cp = await loadCampaignProspect(campaignProspectId);
 
-  const reason = await preSendGate(cp.campaign);
+  const reason = await preSendGate(cp.campaign, 'personalisation');
   if (reason) return { blocked: true, reason };
 
   if (cp.funnel_state !== 'qualified') {
