@@ -96,6 +96,24 @@ Needs `GROQ_API_KEY` and `TAVILY_API_KEY` in `.env` (optionally `GROQ_MODEL`, de
 | `POST /campaigns/:id/discover` | Body `{ limit? }` (default 5, max 10). Builds up to 3 web searches from the campaign's `icp_json`, has Groq extract the people the results actually name (it is told never to invent a person, title, email or LinkedIn URL), and adds them as `discovered` prospects with `source: 'discovery'` and the source URL and fit reason in `company_data_json`. Emails and LinkedIn URLs are kept only if they look real. Someone who already exists (same email, LinkedIn URL, or name at the same company) is linked to this campaign instead of duplicated. Logs one `discovery` activity with Groq's token count and an estimated cost (Groq list price plus $0.008 per Tavily search). 423 if the kill switch is on. Contacts nobody. |
 | `POST /campaigns/:id/discover-and-qualify` | **Calls the real DronaHQ agents and spends credits.** Runs discovery, then `run-research` and `run-icp` on each new prospect, one at a time. It refuses (400) unless the body has `confirm_spend: true`, the UI sends that only after a confirmation dialog, and nothing else in the code calls it. Returns a per-prospect result (`qualified`, `rejected`, `failed`, `blocked`, `skipped`) and a summary. One prospect failing does not stop the others; a gate block (kill switch, campaign not live, agent paused) stops the rest; three failures in a row stop the batch. It never dispatches anything. |
 
+## Autonomous loop (built, OFF by default)
+
+`POST /run-cycle` (body `{ max_actions?, dry_run? }`) makes one pass over every **live** campaign and does the next step for each prospect whose next step follows from where it is in the funnel. **Unless `global_settings.autonomous_mode` is `true` it returns immediately with `{ "ran": false, "reason": "autonomous_mode_off" }` and calls nothing** (a missing column counts as off). Nothing in this codebase calls it on a schedule: a person or a cron has to POST it. It also returns `ran: false` for `kill_switch_on` and `cycle_already_running` (one pass at a time).
+
+| Prospect is... | Next step |
+| --- | --- |
+| `discovered` / `researched`, no research | `run-research` |
+| ...research done, no ICP score | `run-icp` |
+| `qualified`, no strategy | `run-strategy` |
+| ...strategy, no email drafted | `run-personalize` |
+| ...email drafted, never dispatched | `dispatch` on the strategy's channel, if it is enabled for the campaign and "Contact Now" isn't a no |
+| `contacted`, last touch 72h+ ago, fewer than 2 follow-ups, no reply since | `run-followup` |
+| anything else | waits, with the reason reported (`waiting_for_reply`, `awaiting_approval`, `strategy_says_wait`, ...) |
+
+It never runs `run-conversation` (needs a real reply), `run-voice`, or `discover-and-qualify`, and it leaves rejected, engaged, meeting and opportunity prospects, and any with a pending approval, to a person. One step per prospect per pass, at most `max_actions` (default 10, max 50) steps per pass, and three failures in a row stop the pass. Gate blocks (paused agent, campaign, kill switch) are reported as `blocked`.
+
+`GET` / `PATCH /global-settings/autonomous-mode` read and set the flag. Turning it **on** needs `{ "autonomous_mode": true, "confirm": true }` because it lets the system spend DronaHQ credits by itself; turning it off doesn't. It needs the `autonomous_mode` column: re-run [db/schema.sql](db/schema.sql) (until then these endpoints return 503 and the loop is off).
+
 ## Campaign-specific guidance (prompt versions)
 
 DronaHQ's own agent Instructions stay global. What a campaign *can* have is supplementary guidance, versioned and tracked:

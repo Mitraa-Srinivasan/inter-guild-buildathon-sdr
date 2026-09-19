@@ -21,6 +21,7 @@ app.use('/suppression-list', require('./routes/suppressionList'));
 app.use('/global-settings', require('./routes/globalSettings'));
 app.use('/approvals', require('./routes/approvals'));
 app.use('/meetings', require('./routes/meetings'));
+app.use('/run-cycle', require('./routes/runCycle'));
 
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 

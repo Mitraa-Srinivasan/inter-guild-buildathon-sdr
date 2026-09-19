@@ -139,6 +139,8 @@ create table if not exists global_settings (
 -- Global channel pause: { "<channel>": { "enabled": false } } pauses that channel for every campaign (default {} = none paused).
 -- For databases created before this column existed:
 alter table global_settings add column if not exists channels jsonb not null default '{}'::jsonb;
+-- Autonomous mode: when true, POST /run-cycle decides and runs each prospect's next step. OFF by default.
+alter table global_settings add column if not exists autonomous_mode boolean not null default false;
 insert into global_settings (id) values (true) on conflict do nothing;
 
 -- approvals ------------------------------------------------------------------

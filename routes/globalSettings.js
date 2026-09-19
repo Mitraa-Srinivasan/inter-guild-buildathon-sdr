@@ -31,6 +31,7 @@ router.patch('/', async (req, res) => {
 });
 
 const MISSING_COLUMN = 'global_settings.channels does not exist yet: run db/schema.sql in the Supabase SQL editor (it is safe to re-run)';
+const MISSING_AUTONOMOUS = 'global_settings.autonomous_mode does not exist yet: run db/schema.sql in the Supabase SQL editor (it is safe to re-run)';
 const isMissingColumn = (err) => err && err.code === '42703';
 
 // Global channel pause. { "<channel>": { "enabled": false } } pauses that channel for every campaign; a channel not
@@ -65,6 +66,36 @@ router.patch('/channels', async (req, res) => {
     for (const [ch, on] of Object.entries(body)) merged[ch] = { enabled: on };
     const data = unwrap(await supabase.from('global_settings').update({ channels: merged }).eq('id', true).select('channels').maybeSingle());
     res.json({ channels: data.channels });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Autonomous mode: when on, POST /run-cycle decides and runs each prospect's next step by itself. OFF by default.
+// Needs global_settings.autonomous_mode (db/schema.sql). Turning it ON needs { autonomous_mode: true, confirm: true }: it lets the
+// system spend DronaHQ credits without a person triggering each step, so a bare flip is refused. Turning it off never needs confirm.
+router.get('/autonomous-mode', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('global_settings').select('autonomous_mode, updated_at').eq('id', true).maybeSingle();
+    if (isMissingColumn(error)) throw new HttpError(503, MISSING_AUTONOMOUS);
+    if (error) throw error;
+    res.json({ autonomous_mode: Boolean(data && data.autonomous_mode), updated_at: data && data.updated_at });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.patch('/autonomous-mode', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body.autonomous_mode !== 'boolean') throw new HttpError(400, 'autonomous_mode must be a boolean');
+    if (body.autonomous_mode === true && body.confirm !== true) {
+      throw new HttpError(400, 'Turning autonomous mode on lets the system run agents (and spend credits) on its own. Send { "autonomous_mode": true, "confirm": true } to confirm.');
+    }
+    const { data, error } = await supabase.from('global_settings').update({ autonomous_mode: body.autonomous_mode }).eq('id', true).select('autonomous_mode, updated_at').maybeSingle();
+    if (isMissingColumn(error)) throw new HttpError(503, MISSING_AUTONOMOUS);
+    if (error) throw error;
+    res.json({ autonomous_mode: Boolean(data && data.autonomous_mode), updated_at: data && data.updated_at });
   } catch (err) {
     handleError(res, err);
   }
