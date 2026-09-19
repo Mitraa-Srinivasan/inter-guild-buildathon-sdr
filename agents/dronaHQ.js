@@ -47,7 +47,23 @@ async function postWebhook(agentType, payload) {
   if (!json || json.success === false || typeof json.response !== 'string') {
     throw new HttpError(502, `DronaHQ agent returned an unexpected payload: ${text.slice(0, 200)}`);
   }
+  // A guardrail block comes back as a normal 200 whose "response" is the refusal text. Without this it would flow on
+  // to the parser and surface as a misleading 500 ("could not parse Subject").
+  if (isGuardrailBlock(json.response)) {
+    throw new HttpError(502, `Agent blocked by guardrail: the DronaHQ ${agentType} agent refused the request ("${json.response.trim()}")`);
+  }
   return json.response;
+}
+
+// The refusal messages DronaHQ's guardrails return, e.g. "Response blocked by guardrail policies." and
+// "Your message was blocked because it violates our policy". They are short, single-line replies. Every real agent
+// answer is multi-line ("Label: value" lines), so requiring a single short line means a genuine answer that merely
+// mentions a policy is never mistaken for a block.
+const GUARDRAIL_RE = /blocked by (?:the )?guardrail|guardrail polic|blocked because it violates|violates (?:our|the|this) (?:content )?polic/i;
+const GUARDRAIL_MAX_CHARS = 300;
+function isGuardrailBlock(text) {
+  const t = String(text).trim();
+  return t.length > 0 && t.length <= GUARDRAIL_MAX_CHARS && !t.includes('\n') && GUARDRAIL_RE.test(t);
 }
 
 // ICP agent: body is { prospect_summary, ...variables }, e.g. variables = { icp_criteria: "..." }.
@@ -60,4 +76,4 @@ async function callDronaHQPrompt(agentType, promptText) {
   return postWebhook(agentType, { prompt: promptText });
 }
 
-module.exports = { callDronaHQAgent, callDronaHQPrompt };
+module.exports = { callDronaHQAgent, callDronaHQPrompt, isGuardrailBlock };
