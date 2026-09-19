@@ -932,7 +932,7 @@ function settingsPage(){
       ${REPS.map(r=>{const camps=S.campReps.filter(x=>x.rep_id===r.id).map(x=>camp(x.campaign_id)?.name).filter(Boolean);
         return `<tr><td><div style="display:flex;gap:10px;align-items:center"><span class="avatar" style="background:${avatarColor(r.name)}">${initials(r.name)}</span><div><b style="font-size:12.5px">${esc(r.name)}</b><div class="mute" style="font-size:11px">${esc(r.identity_for_outreach||r.email)}</div></div></div></td>
         <td class="mute">${esc(camps.join(', ')||'No campaigns')}</td><td class="${r.working_hours&&Object.keys(r.working_hours).length?'':'mute'}">${esc(fmtHours(r.working_hours))}</td>
-        <td style="text-align:right">${r.active?`<button class="btn sm" data-act="rep-toggle" data-id="${r.id}" data-active="1">Offboard</button>`:`<button class="btn sm" data-act="rep-toggle" data-id="${r.id}" data-active="0">Reactivate</button>`}</td></tr>`}).join('')}
+        <td style="text-align:right">${r.active?`<button class="btn sm" data-act="rep-offboard" data-id="${r.id}">Offboard</button>`:`<button class="btn sm" data-act="rep-toggle" data-id="${r.id}" data-active="0">Reactivate</button>`}</td></tr>`}).join('')}
       </tbody></table></div>`:'<div class="card-b"><div class="empty" style="padding:14px 0">No reps yet.</div></div>'}
     </section>
   </div><div style="display:flex;flex-direction:column;gap:14px">
@@ -958,6 +958,17 @@ function modal(){
     <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn danger" data-act="kill-confirm">${S.killed?'Resume everything':'Stop everything'}</button></div></div></div>`;
   if(m.t==='pause') return `<div class="overlay"><div class="modal"><h2>Pause ${esc(camp(m.id)?.name)}?</h2><p class="mute" style="font-size:13px">Autonomous execution stops immediately. Other campaigns are unaffected. Prospect data is kept.</p>
     <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn danger" data-act="pause-confirm" data-id="${m.id}">Pause campaign</button></div></div></div>`;
+  if(m.t==='offboard'){
+    const im=m.impact,n=im.campaigns.length,orphan=im.campaigns.filter(c=>c.left_without_rep).length;
+    return `<div class="overlay"><div class="modal"><h2>Offboard ${esc(im.rep.name)}?</h2>
+    <p class="mute" style="font-size:13px">${n?`Linked to ${n} campaign${n===1?'':'s'}:`:'Not linked to any campaign.'}${im.assigned_prospect_count?` ${im.assigned_prospect_count} prospect${im.assigned_prospect_count===1?' is':'s are'} assigned to them.`:''}</p>
+    ${n?`<div class="stoplist">${im.campaigns.map(c=>`<div><span>${esc(c.name)} <span class="mute">· ${esc(c.status)}</span></span>${c.left_without_rep?'<span class="tag amber">No other active rep</span>':'<span class="mute">Other reps remain</span>'}</div>`).join('')}</div>`:''}
+    <div class="field"><label>Assign a replacement rep</label><select id="repl"><option value="">No replacement</option>${im.replacement_candidates.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+    <p class="mute" style="font-size:11.5px">${im.replacement_candidates.length
+      ?'With a replacement, these campaigns and the prospects assigned to them move to that rep. Without one, the campaign links stay, and a campaign with no other active rep sends without a sender identity.'
+      :'There is no other active rep to hand over to. Add one first if these campaigns need a sender.'}</p>
+    <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn danger" data-act="offboard-confirm" data-id="${im.rep.id}">Offboard</button></div></div></div>`;
+  }
   if(m.t==='prompt') return `<div class="overlay"><div class="modal"><h2>Save new prompt version</h2><p class="mute" style="font-size:13px;margin-bottom:14px">Saved as the next version for this campaign and agent. It doesn't take effect until you activate it.</p>
     <div class="field"><label>Guidance</label><textarea id="pc" style="min-height:140px" placeholder="Campaign-specific guidance appended to the agent's instructions"></textarea></div>
     <div class="field"><label>Your name</label><input id="pb" placeholder="Who is making this change?"></div>
@@ -995,7 +1006,7 @@ function body(){
 }
 function render(){
   // Keep whatever the user has typed (and focus) across a re-render.
-  const typed={};document.querySelectorAll('#root input[id],#root textarea[id]').forEach(el=>{typed[el.id]=el.value});
+  const typed={};document.querySelectorAll('#root input[id],#root textarea[id],#root select[id]').forEach(el=>{typed[el.id]=el.value});
   const focusId=document.activeElement&&document.activeElement.id;
   const y=window.scrollY;
   document.getElementById('root').innerHTML=S.ready?body():bootScreen();
@@ -1092,9 +1103,22 @@ document.addEventListener('click',e=>{
     await loadPrompts(S.campId,S.promptSel);
     S.promptView=v.version;toast(`Version ${v.version} is now active`);render();
   });
-  if(a==='rep-toggle')return act(async()=>{
-    const r=await api('PATCH',`/reps/${d.id}`,{active:d.active!=='1'});
-    await loadReps();toast(`${r.name} ${r.active?'reactivated':'offboarded'}`);render();
+  if(a==='rep-toggle')return act(async()=>{ // reactivate
+    const r=await api('PATCH',`/reps/${d.id}`,{active:true});
+    await loadReps();toast(`${r.name} reactivated`);render();
+  });
+  if(a==='rep-offboard')return act(async()=>{ // show what it would affect first
+    S.modal={t:'offboard',impact:await api('GET',`/reps/${d.id}/impact`)};render();
+  });
+  if(a==='offboard-confirm')return act(async()=>{
+    const repl=document.getElementById('repl').value;
+    const r=await api('POST',`/reps/${d.id}/offboard`,repl?{replacement_rep_id:repl}:{});
+    S.modal=null;
+    await Promise.all([loadReps(),loadCampReps(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);rebuildAll();
+    const n=r.affected_campaigns.length,orph=r.affected_campaigns.filter(c=>c.left_without_rep).length;
+    toast(r.replacement?`${r.rep.name} offboarded. ${n} campaign${n===1?'':'s'} and ${r.prospects_reassigned} prospect${r.prospects_reassigned===1?'':'s'} moved to ${r.replacement.name}`
+      :`${r.rep.name} offboarded${orph?`. ${orph} campaign${orph===1?'':'s'} left with no active rep`:''}`);
+    render();
   });
   if(a==='supp-add')return act(async()=>{
     const el=document.getElementById('supp'),value=el.value.trim();

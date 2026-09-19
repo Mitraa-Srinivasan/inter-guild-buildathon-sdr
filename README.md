@@ -51,7 +51,9 @@ lib/                 http.js (validation + error mapping), enums.js
 - `PATCH /campaigns/:id/status` `{ status }` changes only the lifecycle status (Launch / Pause / Resume).
 - `GET /campaigns/:id/activities` is the campaign's activity log, newest first, with the prospect embedded. Filters: `?agent_type=`, `?status=`, `limit`, `offset`.
 - `GET` / `PATCH /global-settings/kill-switch` (`{ kill_switch_on }`).
-- `PATCH /reps/:id`, e.g. `{ active: false }` to offboard.
+- `PATCH /reps/:id` updates a rep's fields (e.g. `{ active: true }` to reactivate). To **offboard**, use the two endpoints below: setting `active: false` here alone reports and reassigns nothing.
+- `GET /reps/:id/impact` previews an offboarding: the rep's campaigns (each flagged `left_without_rep` if no other active rep is on it), how many prospects are assigned to them, and the active reps that could take over.
+- `POST /reps/:id/offboard` with `{ replacement_rep_id? }` deactivates the rep and returns `affected_campaigns`. With a replacement, that rep is linked to each campaign, the prospects assigned to the offboarded rep are handed to them, and the offboarded rep's campaign links are removed. Without one, the links stay (reactivating restores them) and campaigns with no other active rep send without a sender identity. 409 if already offboarded; 400 for a replacement that is the same rep or inactive.
 - `GET /health/services` reports the backend, Supabase and DronaHQ. DronaHQ is only checked as *configured* (all 7 webhook URLs and keys set), never called, because agent runs cost credits.
 - `GET /activities/spend?since=<ISO>` is the total estimated cost since a moment (default the start of the UTC day), for the sidebar's "AI spend today".
 - `GET /global-settings/guardrails` is a read-only summary: suppression count and the max-touches cap (3 successful dispatches per prospect per campaign in 7 days, set in `orchestrator/conflict.js`).
