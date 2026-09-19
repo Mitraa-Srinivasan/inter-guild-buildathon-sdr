@@ -76,6 +76,7 @@ may happen. **It is simulated: nothing is sent**; it records the dispatch and ad
    | --- | --- |
    | `suppressed` | Prospect's email is in `suppression_list` (scope `global`, compared lowercased). |
    | `prospect_rejected` | The campaign prospect's `funnel_state` is `rejected` (ICP scoring said no). |
+   | `pending_approval` | This campaign prospect has a `pending` row in `approvals` (e.g. an ICP escalation). Clears once the approval is approved or rejected. `details` = the approval id and type. |
    | `active_in_other_campaign` | Same prospect is in another **live** campaign with a successful `dispatch` in the last 48h (other activity types, e.g. research/ICP, never count). `details` = that campaign's name. |
    | `frequency_cap_exceeded` | 3 or more successful dispatches to this campaign prospect in the last 7 days. |
    | `daily_limit_reached` | Successful dispatches today (UTC) for the campaign on this channel reached `daily_limits[channel]`. No limit set = unlimited. |

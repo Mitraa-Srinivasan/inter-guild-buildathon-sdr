@@ -55,8 +55,8 @@ async function countDispatches(narrow) {
 
 // Returns { allowed, reason, details }. Checks run in order and stop at the first failure:
 //   1. suppressed                 2. prospect_rejected
-//   3. active_in_other_campaign   4. frequency_cap_exceeded
-//   5. daily_limit_reached
+//   3. pending_approval           4. active_in_other_campaign
+//   5. frequency_cap_exceeded     6. daily_limit_reached
 // options.channel selects which channel's daily limit applies (no channel -> no daily limit).
 async function checkConflicts(campaignProspectId, { channel } = {}) {
   const cp = await loadCampaignProspect(campaignProspectId);
@@ -71,7 +71,24 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
   // 2. A prospect that ICP scoring rejected is never contacted.
   if (cp.funnel_state === 'rejected') return deny('prospect_rejected', "prospect is in funnel_state 'rejected'");
 
-  // 3. Same prospect in another live campaign with a (non-failed) dispatch in the last 48h.
+  // 3. A pending approval (e.g. an ICP escalation) means a human hasn't signed off yet: hold the outreach.
+  //    Scoped to this campaign prospect; once the approval is approved/rejected it no longer blocks.
+  const pendingApprovals = unwrap(
+    await supabase
+      .from('approvals')
+      .select('id, proposed_action_json')
+      .eq('campaign_id', cp.campaign_id)
+      .eq('prospect_id', cp.prospect_id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(1)
+  );
+  if (pendingApprovals.length) {
+    const type = pendingApprovals[0].proposed_action_json && pendingApprovals[0].proposed_action_json.type;
+    return deny('pending_approval', `approval ${pendingApprovals[0].id} is pending${type ? ` (${type})` : ''}`);
+  }
+
+  // 4. Same prospect in another live campaign with a (non-failed) dispatch in the last 48h.
   //    Only dispatches count: research/ICP/etc. running on the prospect in two campaigns must not block outreach.
   //    Failed dispatches are ignored so that a denied dispatch in one campaign can't itself block the other.
   const links = unwrap(
@@ -100,7 +117,7 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
     }
   }
 
-  // 4. Frequency cap: successful dispatches to this campaign_prospect in the last 7 days.
+  // 5. Frequency cap: successful dispatches to this campaign_prospect in the last 7 days.
   const recentDispatches = await countDispatches((q) =>
     q.eq('campaign_id', cp.campaign_id).eq('prospect_id', cp.prospect_id).gte('created_at', isoAgo(FREQUENCY_WINDOW_MS))
   );
@@ -108,7 +125,7 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
     return deny('frequency_cap_exceeded', `${recentDispatches} dispatches in the last 7 days (cap ${FREQUENCY_CAP})`);
   }
 
-  // 5. Daily limit: successful dispatches today (UTC) across the whole campaign, on this channel.
+  // 6. Daily limit: successful dispatches today (UTC) across the whole campaign, on this channel.
   const limit = dailyLimitFor(cp.campaign.daily_limits, channel);
   if (limit !== null) {
     const today = await countDispatches((q) => q.eq('campaign_id', cp.campaign_id).eq('channel', channel).gte('created_at', startOfUtcDay()));
