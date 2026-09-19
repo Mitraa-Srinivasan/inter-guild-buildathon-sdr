@@ -7,7 +7,7 @@ Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-
 1. Create a Supabase project, then run [db/schema.sql](db/schema.sql) in the SQL editor (safe to re-run).
 2. `cp .env.example .env` and fill in the values (see below). Use the **service_role** Supabase key; RLS is on with no policies.
 3. `npm install`
-4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" (idempotent).
+4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" and "Voice AI Founders" (idempotent; re-running also adds missing rep links).
 5. `npm start` (or `npm run dev`), default port 3000.
 
 Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
@@ -56,7 +56,7 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 | `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
 | `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. A positive reply whose Next Action is "Book meeting" also inserts a `meetings` row (`scheduled_at` null, status `scheduled`; one pending per campaign prospect), noted in the same activity. |
 | `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
-| `run-voice` | `voice` / `call` | Requires the `voice` or `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call` (`transcript`, `outcome`, `reasoning`, `simulated: true`: the agent writes the whole conversation; no real call happens). The seeded "Voice AI Founders" campaign has `voice` enabled. |
+| `run-voice` | `voice` / `call` | Requires the `voice` or `phone` channel enabled on the campaign (400 otherwise). The prompt names the caller (same rep lookup as `run-personalize`). Stores `context_json.voice_call` (`transcript`, `outcome`, `reasoning`, `simulated: true`: the agent writes the whole conversation; no real call happens). The seeded "Voice AI Founders" campaign has `voice` enabled. |
 
 **Usage and cost (estimates):** every activity row carries `model`, `tokens` and `cost` (USD), filled in by `logActivity` in
 [orchestrator/common.js](orchestrator/common.js). DronaHQ webhooks don't report usage, so these are **estimated**, not measured:

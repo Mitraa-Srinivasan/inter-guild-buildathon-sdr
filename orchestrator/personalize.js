@@ -1,5 +1,5 @@
-const { supabase, unwrap } = require('../db/supabase');
 const { HttpError } = require('../lib/http');
+const { loadSenderIdentity } = require('./sender');
 const { preSendGate } = require('./gate');
 const { callDronaHQPrompt } = require('../agents/dronaHQ');
 const { loadCampaignProspect, logActivity, logFailedActivity, mergeContext } = require('./common');
@@ -9,25 +9,6 @@ const show = (v) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 
 // context_json keys written by this step; excluded from the prompt so an old draft isn't fed back in.
 const DRAFT_KEYS = ['email_subject', 'email_body', 'email_snippets_used'];
-
-// Who the email should be signed by: the prospect's assigned rep if set, otherwise a rep on this campaign
-// (campaign_reps). Only active reps with an identity_for_outreach count. Returns the identity text, or null.
-async function loadSenderIdentity(cp) {
-  const usable = (rep) => rep && rep.active && present(rep.identity_for_outreach);
-
-  if (cp.assigned_rep_id) {
-    const assigned = unwrap(
-      await supabase.from('reps').select('name, identity_for_outreach, active').eq('id', cp.assigned_rep_id).maybeSingle()
-    );
-    if (usable(assigned)) return assigned.identity_for_outreach.trim();
-  }
-
-  const rows = unwrap(
-    await supabase.from('campaign_reps').select('rep:reps(name, identity_for_outreach, active)').eq('campaign_id', cp.campaign_id)
-  );
-  const reps = rows.map((r) => r.rep).filter(usable).sort((a, b) => a.name.localeCompare(b.name)); // name order keeps the pick stable
-  return reps.length ? reps[0].identity_for_outreach.trim() : null;
-}
 
 // Single prompt string: basic prospect info + the research / context gathered so far (+ who signs the email).
 function buildPersonalizePrompt(prospect, context, senderIdentity = null) {

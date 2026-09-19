@@ -1,18 +1,20 @@
 const { HttpError } = require('../lib/http');
 const { runAgentStep, parseFields, mergeContext } = require('./common');
 const { enabledChannels, availableChannelsLine } = require('./channels');
+const { loadSenderIdentity } = require('./sender');
 
 const present = (v) => v !== undefined && v !== null && v !== '';
 
 const LABELS = ['Transcript', 'Outcome', 'Reasoning'];
 
-// Prospect info, the research (if any), and the campaign's enabled channels.
-function buildVoicePrompt(prospect, context, channels) {
+// Prospect info, who is calling, the research (if any), and the campaign's enabled channels.
+function buildVoicePrompt(prospect, context, channels, senderIdentity = null) {
   const lines = [
     `Name: ${prospect.name}`,
     `Title: ${present(prospect.title) ? prospect.title : 'not provided'}`,
     `Company: ${present(prospect.company) ? prospect.company : 'not provided'}`,
   ];
+  if (present(senderIdentity)) lines.push('', `Sender (introduce yourself on the call as this person): ${senderIdentity}`);
   if (present(context.research)) lines.push('', 'Research:', String(context.research).trim());
   lines.push('', availableChannelsLine(channels));
   return lines.join('\n');
@@ -29,7 +31,10 @@ function runVoice(campaignProspectId) {
         throw new HttpError(400, "Neither the 'voice' nor the 'phone' channel is enabled for this campaign; cannot run a voice call");
       }
     },
-    buildPrompt: (cp) => buildVoicePrompt(cp.prospect, cp.context_json || {}, enabledChannels(cp.campaign.channel_config)),
+    async buildPrompt(cp) {
+      const sender = await loadSenderIdentity(cp);
+      return buildVoicePrompt(cp.prospect, cp.context_json || {}, enabledChannels(cp.campaign.channel_config), sender);
+    },
     // The transcript is kept verbatim (no markdown clean-up).
     parse: (raw) => parseFields(raw, LABELS, 'Voice agent', { keepFormatting: ['Transcript'] }),
     apply: (cp, f) =>

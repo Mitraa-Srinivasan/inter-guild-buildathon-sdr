@@ -57,15 +57,16 @@ const campaigns = [
   },
 ];
 
-// One sample rep, linked to "US SaaS CTO" only. The other campaigns are left without a rep on purpose.
-// identity_for_outreach is what personalised emails are signed with.
+// One sample rep, linked to "US SaaS CTO" and "Voice AI Founders" (a rep can serve several campaigns).
+// "India BFSI CIO" is left without a rep on purpose.
+// identity_for_outreach is what personalised emails are signed with and what the voice agent introduces itself as.
 const rep = {
   name: 'Alex Rivera',
   email: 'alex.rivera@meridian.example',
   identity_for_outreach: 'Alex Rivera, Account Executive at Meridian',
   active: true,
 };
-const REP_CAMPAIGN = 'US SaaS CTO';
+const REP_CAMPAIGNS = ['US SaaS CTO', 'Voice AI Founders'];
 
 async function seedRep() {
   let row = unwrap(await supabase.from('reps').select('id').eq('email', rep.email).maybeSingle());
@@ -76,15 +77,17 @@ async function seedRep() {
     console.log(`Created rep "${rep.name}" ${row.id}`);
   }
 
-  const campaign = unwrap(await supabase.from('campaigns').select('id').eq('name', REP_CAMPAIGN).maybeSingle());
-  if (!campaign) throw new Error(`Campaign "${REP_CAMPAIGN}" not found; cannot link rep`);
-  const linked = unwrap(
-    await supabase
-      .from('campaign_reps')
-      .upsert({ campaign_id: campaign.id, rep_id: row.id }, { onConflict: 'campaign_id,rep_id', ignoreDuplicates: true })
-      .select()
-  );
-  console.log(linked.length ? `Linked "${rep.name}" to "${REP_CAMPAIGN}"` : `Skipping link "${rep.name}" -> "${REP_CAMPAIGN}" (already linked)`);
+  for (const campaignName of REP_CAMPAIGNS) {
+    const campaign = unwrap(await supabase.from('campaigns').select('id').eq('name', campaignName).maybeSingle());
+    if (!campaign) throw new Error(`Campaign "${campaignName}" not found; cannot link rep`);
+    const linked = unwrap(
+      await supabase
+        .from('campaign_reps')
+        .upsert({ campaign_id: campaign.id, rep_id: row.id }, { onConflict: 'campaign_id,rep_id', ignoreDuplicates: true })
+        .select()
+    );
+    console.log(linked.length ? `Linked "${rep.name}" to "${campaignName}"` : `Skipping link "${rep.name}" -> "${campaignName}" (already linked)`);
+  }
 }
 
 async function seed() {
