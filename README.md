@@ -1,3 +1,66 @@
 # inter-guild-buildathon-sdr
 
-Test commit
+Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-agent orchestrator steps (Phase 2).
+
+## Setup
+
+1. Create a Supabase project, then run [db/schema.sql](db/schema.sql) in the SQL editor (safe to re-run).
+2. `cp .env.example .env` and fill in the values (see below). Use the **service_role** Supabase key; RLS is on with no policies.
+3. `npm install`
+4. `npm run seed` creates the 3 sample campaigns (idempotent).
+5. `npm start` (or `npm run dev`), default port 3000.
+
+Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
+`ICP`, `RESEARCH`, `PERSONALIZE`, `STRATEGY`, `CONVERSATION`, `FOLLOWUP`, `VOICE`.
+
+## Layout
+
+```
+app.js / server.js   Express app (exported for reuse) / listener
+db/                  schema.sql, supabase.js client, seed.js
+routes/              one router per resource
+orchestrator/        gate.js (pre-send gate), one module per agent step, common.js (step runner + parser),
+                     history.js (recent-activity prompt section), channels.js (enabled channels + safety net)
+agents/dronaHQ.js    DronaHQ webhook client
+lib/                 http.js (validation + error mapping), enums.js
+```
+
+## CRUD endpoints
+
+| Resource | Endpoints |
+| --- | --- |
+| campaigns | `POST /campaigns`, `GET /campaigns`, `GET /campaigns/:id`, `PATCH /campaigns/:id` |
+| campaign prospects | `POST /campaign-prospects`, `GET /campaigns/:id/campaign-prospects` |
+| prospects | `POST /prospects`, `GET /prospects/:id` |
+| activities | `POST /activities`, `GET /activities` |
+| reps | `POST /reps`, `GET /reps` |
+| campaign reps | `POST /campaign-reps`, `GET /campaign-reps` |
+| suppression list | `POST /suppression-list`, `GET /suppression-list` |
+| global settings | `GET /global-settings`, `PATCH /global-settings` |
+| approvals | `POST /approvals`, `GET /approvals`, `GET /approvals/:id`, `PATCH /approvals/:id` |
+| meetings | `POST /meetings`, `GET /meetings` |
+
+List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple filters (e.g. `?status=`, `?campaign_id=`).
+
+## Orchestrator endpoints
+
+All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send gate: **423** with
+`{ blocked: true, reason }` if the global kill switch is on (`kill_switch_on`) or the campaign isn't live
+(`campaign_not_live`). Every run writes an `activities` row (`failed` on agent/parse errors, with the reason).
+
+| Step | Agent / action | Notes |
+| --- | --- | --- |
+| `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json`; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). |
+| `run-research` | `research` / `enrich` | Raw text stored in `context_json.research`. |
+| `run-personalize` | `personalisation` / `draft_email` | Needs `qualified` + research. Stores `email_subject`, `email_body`, `email_snippets_used`. |
+| `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
+| `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. |
+| `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
+| `run-voice` | `voice` / `call` | Requires the `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call`. |
+
+**Channel safety net:** for `run-strategy` and `run-followup`, if the agent recommends a channel that isn't enabled in the
+campaign's `channel_config` (`enabled: true`), the run returns **422**, logs a `failed` activity noting the mismatch, and
+stores nothing.
+
+Errors: `400` validation / precondition, `404` not found, `409` unique violation, `422` bad foreign key or channel mismatch,
+`423` blocked by the gate, `500` unexpected or unparseable agent output, `502` DronaHQ call failed.
