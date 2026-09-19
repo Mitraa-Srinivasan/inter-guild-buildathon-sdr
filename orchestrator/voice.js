@@ -22,10 +22,11 @@ function runVoice(campaignProspectId) {
   return runAgentStep(campaignProspectId, {
     agentType: 'voice',
     actionType: 'call',
-    // A call is a phone action; don't run it for a campaign that hasn't enabled phone.
+    // A call needs the campaign to have switched on either the 'voice' or the 'phone' channel.
     precheck(cp) {
-      if (!enabledChannels(cp.campaign.channel_config).includes('phone')) {
-        throw new HttpError(400, 'The phone channel is not enabled for this campaign; cannot run a voice call');
+      const enabled = enabledChannels(cp.campaign.channel_config);
+      if (!enabled.includes('voice') && !enabled.includes('phone')) {
+        throw new HttpError(400, "Neither the 'voice' nor the 'phone' channel is enabled for this campaign; cannot run a voice call");
       }
     },
     buildPrompt: (cp) => buildVoicePrompt(cp.prospect, cp.context_json || {}, enabledChannels(cp.campaign.channel_config)),
@@ -33,7 +34,8 @@ function runVoice(campaignProspectId) {
     parse: (raw) => parseFields(raw, LABELS, 'Voice agent', { keepFormatting: ['Transcript'] }),
     apply: (cp, f) =>
       mergeContext(cp, {
-        voice_call: { transcript: f['Transcript'], outcome: f['Outcome'], reasoning: f['Reasoning'] },
+        // simulated: the agent writes the whole conversation; no real call takes place.
+        voice_call: { transcript: f['Transcript'], outcome: f['Outcome'], reasoning: f['Reasoning'], simulated: true },
       }),
   });
 }

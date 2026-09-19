@@ -56,7 +56,7 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 | `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
 | `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. A positive reply whose Next Action is "Book meeting" also inserts a `meetings` row (`scheduled_at` null, status `scheduled`; one pending per campaign prospect), noted in the same activity. |
 | `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
-| `run-voice` | `voice` / `call` | Requires the `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call`. |
+| `run-voice` | `voice` / `call` | Requires the `voice` or `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call` (`transcript`, `outcome`, `reasoning`, `simulated: true`: the agent writes the whole conversation; no real call happens). The seeded "Voice AI Founders" campaign has `voice` enabled. |
 
 **Usage and cost (estimates):** every activity row carries `model`, `tokens` and `cost` (USD), filled in by `logActivity` in
 [orchestrator/common.js](orchestrator/common.js). DronaHQ webhooks don't report usage, so these are **estimated**, not measured:

@@ -52,7 +52,7 @@ const campaigns = [
       },
       exclusions: { industries: [], competitors: true },
     },
-    channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: false } },
+    channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: false }, voice: { enabled: true } },
     daily_limits: { email: 40, linkedin: 25 },
   },
 ];
