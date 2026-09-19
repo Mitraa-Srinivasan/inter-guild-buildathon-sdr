@@ -1,5 +1,6 @@
 const { HttpError } = require('../lib/http');
 const { loadSenderIdentity } = require('./sender');
+const { loadActiveGuidance, appendGuidance } = require('./guidance');
 const { preSendGate } = require('./gate');
 const { callDronaHQPrompt } = require('../agents/dronaHQ');
 const { loadCampaignProspect, logActivity, logFailedActivity, mergeContext } = require('./common');
@@ -63,12 +64,14 @@ async function runPersonalize(campaignProspectId) {
     throw new HttpError(400, 'No research or context on this prospect yet; run run-research first');
   }
 
-  const prompt = buildPersonalizePrompt(cp.prospect, context, await loadSenderIdentity(cp));
+  const guidance = await loadActiveGuidance(cp.campaign_id, 'personalisation');
+  const promptVersionId = guidance ? guidance.id : null;
+  const prompt = appendGuidance(buildPersonalizePrompt(cp.prospect, context, await loadSenderIdentity(cp)), guidance);
   let raw;
   try {
     raw = await callDronaHQPrompt('personalisation', prompt);
   } catch (err) {
-    await logFailedActivity(cp, 'personalisation', 'draft_email', prompt, '', err.message);
+    await logFailedActivity(cp, 'personalisation', 'draft_email', prompt, '', err.message, promptVersionId);
     throw err;
   }
 
@@ -76,7 +79,7 @@ async function runPersonalize(campaignProspectId) {
   try {
     draft = parseEmailDraft(raw);
   } catch (err) {
-    await logFailedActivity(cp, 'personalisation', 'draft_email', prompt, raw, err.message);
+    await logFailedActivity(cp, 'personalisation', 'draft_email', prompt, raw, err.message, promptVersionId);
     throw err;
   }
 
@@ -85,7 +88,7 @@ async function runPersonalize(campaignProspectId) {
     email_body: draft.body,
     email_snippets_used: draft.snippetsUsed,
   });
-  await logActivity(cp, 'personalisation', 'draft_email', prompt, raw, 'success');
+  await logActivity(cp, 'personalisation', 'draft_email', prompt, raw, 'success', null, { promptVersionId });
   return { blocked: false, campaignProspect: updated };
 }
 

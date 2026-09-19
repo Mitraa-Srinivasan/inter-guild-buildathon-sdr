@@ -2,6 +2,7 @@ const { supabase, unwrap } = require('../db/supabase');
 const { HttpError, notFound } = require('../lib/http');
 const { preSendGate } = require('./gate');
 const { callDronaHQPrompt } = require('../agents/dronaHQ');
+const { loadActiveGuidance, appendGuidance } = require('./guidance');
 
 // Campaign prospect with its prospect and campaign embedded.
 async function loadCampaignProspect(id) {
@@ -49,7 +50,8 @@ function estimateUsage(agentType, input, output, responded = true) {
 
 // The one place activities are written by the orchestrator: inserts the row with model / tokens / cost
 // estimates filled in, and returns its id. options.responded=false marks a run where the agent never answered.
-async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status, channel = null, { responded = true } = {}) {
+// options.promptVersionId records which campaign-specific guidance (prompt_versions row) was in the prompt.
+async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status, channel = null, { responded = true, promptVersionId = null } = {}) {
   const usage = estimateUsage(agentType, inputSummary, outputSummary, responded);
   const row = unwrap(
     await supabase
@@ -60,7 +62,7 @@ async function logActivity(cp, agentType, actionType, inputSummary, outputSummar
         agent_type: agentType,
         action_type: actionType,
         channel,
-        prompt_version_id: null,
+        prompt_version_id: promptVersionId,
         model: usage.model,
         input_summary: inputSummary,
         output_summary: outputSummary,
@@ -76,9 +78,9 @@ async function logActivity(cp, agentType, actionType, inputSummary, outputSummar
 
 // Best effort: a failed run should leave a trace, but logging must never mask the original error.
 // An empty `raw` means the agent never answered, so no usage is estimated.
-async function logFailedActivity(cp, agentType, actionType, prompt, raw, reason) {
+async function logFailedActivity(cp, agentType, actionType, prompt, raw, reason, promptVersionId = null) {
   try {
-    await logActivity(cp, agentType, actionType, prompt, raw ? `${reason}\n\n${raw}` : reason, 'failed', null, { responded: Boolean(raw) });
+    await logActivity(cp, agentType, actionType, prompt, raw ? `${reason}\n\n${raw}` : reason, 'failed', null, { responded: Boolean(raw), promptVersionId });
   } catch (logErr) {
     console.error(`Failed to record failed ${agentType} activity:`, logErr);
   }
@@ -189,13 +191,16 @@ async function runAgentStep(campaignProspectId, step) {
     }
   }
 
-  const prompt = await step.buildPrompt(cp);
+  // Campaign-specific guidance (the active prompt_versions row for this campaign + agent), appended to the prompt.
+  const guidance = await loadActiveGuidance(cp.campaign_id, agentType);
+  const promptVersionId = guidance ? guidance.id : null;
+  const prompt = appendGuidance(await step.buildPrompt(cp), guidance);
   let raw;
   try {
     raw = await callDronaHQPrompt(agentType, prompt);
     if (!raw.trim()) throw new HttpError(502, `DronaHQ ${agentType} agent returned an empty response`);
   } catch (err) {
-    await logFailedActivity(cp, agentType, actionType, prompt, '', err.message);
+    await logFailedActivity(cp, agentType, actionType, prompt, '', err.message, promptVersionId);
     throw err;
   }
 
@@ -203,7 +208,7 @@ async function runAgentStep(campaignProspectId, step) {
   try {
     parsed = step.parse(raw, cp);
   } catch (err) {
-    await logFailedActivity(cp, agentType, actionType, prompt, raw, err.message);
+    await logFailedActivity(cp, agentType, actionType, prompt, raw, err.message, promptVersionId);
     throw err;
   }
 
@@ -211,7 +216,7 @@ async function runAgentStep(campaignProspectId, step) {
   // with this step's activity instead of creating a separate activity.
   const notes = [];
   const updated = await step.apply(cp, parsed, notes);
-  await logActivity(cp, agentType, actionType, prompt, notes.length ? `${raw}\n\n${notes.join('\n')}` : raw, 'success', channel);
+  await logActivity(cp, agentType, actionType, prompt, notes.length ? `${raw}\n\n${notes.join('\n')}` : raw, 'success', channel, { promptVersionId });
   if (step.afterSuccess) await step.afterSuccess(cp, parsed);
   return { blocked: false, campaignProspect: updated };
 }

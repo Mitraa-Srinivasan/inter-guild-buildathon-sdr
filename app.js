@@ -5,6 +5,7 @@ app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+app.use('/campaigns/:id/prompt-versions', require('./routes/promptVersions'));
 app.use('/campaigns', require('./routes/campaigns'));
 app.use('/prospects', require('./routes/prospects'));
 app.use('/campaign-prospects', require('./routes/campaignProspects'));

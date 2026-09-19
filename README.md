@@ -65,6 +65,18 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 tokens = (input chars + output chars) / 4, priced with a per-agent credits-per-1k-tokens table at 500 credits = $1. They leave out each
 agent's own instructions on the DronaHQ side. Rows with no LLM (`dispatch`) and runs where the agent never answered record 0.
 
+## Campaign-specific guidance (prompt versions)
+
+DronaHQ's own agent Instructions stay global. What a campaign *can* have is supplementary guidance, versioned and tracked:
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /campaigns/:id/prompt-versions` | Body `{ agent_type, content, changed_by }`. Creates the next version for that campaign + agent (numbered per campaign and agent), inactive. `agent_type` is one of `icp`, `research`, `personalisation`, `strategy`, `conversation`, `follow`, `voice`. |
+| `PATCH /campaigns/:id/prompt-versions/:versionId/activate` | Makes it the active version and deactivates the previous one. Activating an older version is the rollback. |
+| `GET /campaigns/:id/prompt-versions?agent_type=icp` | Lists versions, newest first. |
+
+Every run-* step appends the active version to the prompt as `Campaign-specific guidance: <content>` (for `run-icp` it goes on the `prospect_summary` the agent receives) and records the version's id in `activities.prompt_version_id`, so an outcome can be traced to the guidance behind it. Versions are immutable: to change guidance, create a new version and activate it. Activation is not atomic (no transactions in supabase-js): the old version is deactivated first and restored if the new one fails to activate.
+
 ## Dispatch and the conflict gate
 
 `POST /campaign-prospects/:id/dispatch` with body `{ channel }` is the step that decides whether an actual outreach action

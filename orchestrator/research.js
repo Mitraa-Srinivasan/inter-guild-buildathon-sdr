@@ -1,6 +1,7 @@
 const { HttpError } = require('../lib/http');
 const { preSendGate } = require('./gate');
 const { callDronaHQPrompt } = require('../agents/dronaHQ');
+const { loadActiveGuidance, appendGuidance } = require('./guidance');
 const { loadCampaignProspect, logActivity, logFailedActivity, mergeContext } = require('./common');
 
 const present = (v) => v !== undefined && v !== null && v !== '';
@@ -28,18 +29,20 @@ async function runResearch(campaignProspectId) {
   const reason = await preSendGate(cp.campaign);
   if (reason) return { blocked: true, reason };
 
-  const prompt = buildResearchPrompt(cp.prospect);
+  const guidance = await loadActiveGuidance(cp.campaign_id, 'research');
+  const promptVersionId = guidance ? guidance.id : null;
+  const prompt = appendGuidance(buildResearchPrompt(cp.prospect), guidance);
   let raw;
   try {
     raw = await callDronaHQPrompt('research', prompt);
     if (!raw.trim()) throw new HttpError(502, 'DronaHQ research agent returned an empty response');
   } catch (err) {
-    await logFailedActivity(cp, 'research', 'enrich', prompt, '', err.message);
+    await logFailedActivity(cp, 'research', 'enrich', prompt, '', err.message, promptVersionId);
     throw err;
   }
 
   const updated = await mergeContext(cp, { research: raw });
-  await logActivity(cp, 'research', 'enrich', prompt, raw, 'success');
+  await logActivity(cp, 'research', 'enrich', prompt, raw, 'success', null, { promptVersionId });
   return { blocked: false, campaignProspect: updated };
 }
 

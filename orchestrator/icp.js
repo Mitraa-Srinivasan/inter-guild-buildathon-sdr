@@ -3,6 +3,7 @@ const { HttpError, notFound } = require('../lib/http');
 const { preSendGate } = require('./gate');
 const { callDronaHQAgent } = require('../agents/dronaHQ');
 const { logActivity, logFailedActivity } = require('./common');
+const { loadActiveGuidance, appendGuidance } = require('./guidance');
 
 const DECISION_TO_STATE = { qualified: 'qualified', rejected: 'rejected', escalate: 'qualified' };
 
@@ -91,14 +92,24 @@ function formatIcpCriteria(icp) {
 function parseIcpResponse(raw) {
   // The real agent formats its answer as markdown ("**Total Score**: 75 points"), so allow
   // optional asterisks around the label and the colon.
-  const scoreMatch = /Total Score\**:?\**\s*(\d+)/i.exec(raw);
+  const scoreLine = /Total Score\**:?\**([^\n]*)/i.exec(raw);
   const decisionMatch = /Decision\**:?\**\s*(Qualified|Rejected|Escalate)/i.exec(raw);
-  if (!scoreMatch) throw new HttpError(500, 'ICP agent response could not be parsed: no "Total Score" found');
+  const score = scoreLine ? scoreFromLine(scoreLine[1]) : null;
+  if (score === null) throw new HttpError(500, 'ICP agent response could not be parsed: no "Total Score" found');
   if (!decisionMatch) {
     throw new HttpError(500, 'ICP agent response could not be parsed: no "Decision" of Qualified/Rejected/Escalate found');
   }
   const decision = decisionMatch[1].toLowerCase();
-  return { score: parseInt(scoreMatch[1], 10), decision, funnelState: DECISION_TO_STATE[decision] };
+  return { score, decision, funnelState: DECISION_TO_STATE[decision] };
+}
+
+// The text after "Total Score": "75 points", "0/100", "**100**", or worked arithmetic ("25 + 25 + 25 + 0 = **75**",
+// which happens when campaign guidance makes the agent show its sums). The total is the number after the last "=".
+function scoreFromLine(rest) {
+  const text = rest.replace(/\([^)]*\)/g, ' '); // drop "(out of 100)"-style asides
+  const afterEquals = text.includes('=') ? text.slice(text.lastIndexOf('=') + 1) : text;
+  const m = /\d+/.exec(afterEquals);
+  return m ? parseInt(m[0], 10) : null;
 }
 
 // Returns { blocked: true, reason } if the gate stops the run, otherwise { blocked: false, campaignProspect }.
@@ -115,7 +126,10 @@ async function runIcp(campaignProspectId) {
   const reason = await preSendGate(cp.campaign);
   if (reason) return { blocked: true, reason };
 
-  const prospectSummary = buildProspectSummary(cp.prospect, cp);
+  // Campaign-specific guidance goes onto the prospect_summary the agent receives (icp_criteria stays as is).
+  const guidance = await loadActiveGuidance(cp.campaign_id, 'icp');
+  const promptVersionId = guidance ? guidance.id : null;
+  const prospectSummary = appendGuidance(buildProspectSummary(cp.prospect, cp), guidance);
   const icpCriteria = formatIcpCriteria(cp.campaign.icp_json);
   // Logged as input_summary so the record shows everything the agent was given.
   const prompt = `${prospectSummary}\n\n[icp_criteria]\n${icpCriteria}`;
@@ -123,7 +137,7 @@ async function runIcp(campaignProspectId) {
   try {
     raw = await callDronaHQAgent('icp', prospectSummary, { icp_criteria: icpCriteria });
   } catch (err) {
-    await logFailedActivity(cp, 'icp', 'score', prompt, '', err.message);
+    await logFailedActivity(cp, 'icp', 'score', prompt, '', err.message, promptVersionId);
     throw err;
   }
 
@@ -131,7 +145,7 @@ async function runIcp(campaignProspectId) {
   try {
     parsed = parseIcpResponse(raw);
   } catch (err) {
-    await logFailedActivity(cp, 'icp', 'score', prompt, raw, err.message);
+    await logFailedActivity(cp, 'icp', 'score', prompt, raw, err.message, promptVersionId);
     throw err;
   }
 
@@ -149,7 +163,7 @@ async function runIcp(campaignProspectId) {
       .single()
   );
 
-  const activityId = await logActivity(cp, 'icp', 'score', prompt, raw, 'success');
+  const activityId = await logActivity(cp, 'icp', 'score', prompt, raw, 'success', null, { promptVersionId });
 
   // An "Escalate" decision goes to a human: queue a pending approval pointing at this activity.
   if (parsed.decision === 'escalate') await queueEscalationApproval(cp, activityId, parsed.score, reasoning);
