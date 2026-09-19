@@ -52,7 +52,7 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 | --- | --- | --- |
 | `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json`; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). |
 | `run-research` | `research` / `enrich` | Raw text stored in `context_json.research`. |
-| `run-personalize` | `personalisation` / `draft_email` | Needs `qualified` + research. Stores `email_subject`, `email_body`, `email_snippets_used`. |
+| `run-personalize` | `personalisation` / `draft_email` | Needs `qualified` + research. Prompt names the sender: the prospect's `assigned_rep_id`, else an active rep on the campaign (`campaign_reps`), using `reps.identity_for_outreach`. Stores `email_subject`, `email_body`, `email_snippets_used`. |
 | `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
 | `run-conversation` | `conversation` / `classify_reply` | Body `{ reply_text }` (required). `positive` -> `engaged`; `unsubscribe` -> email added to `suppression_list`. Stores `context_json.last_conversation`. |
 | `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
