@@ -2,6 +2,7 @@ const { supabase, unwrap } = require('../db/supabase');
 const { preSendGate } = require('./gate');
 const { loadCampaignProspect, logActivity } = require('./common');
 const { checkConflicts } = require('./conflict');
+const { claimDispatchSlot } = require('./dispatchSlot');
 const { enabledChannels } = require('./channels');
 
 // Stages a dispatch moves forward to 'contacted'. Anything else (contacted, engaged, meeting, opportunity,
@@ -37,8 +38,14 @@ async function runDispatch(campaignProspectId, channelInput) {
     return { denied: true, reason: verdict.reason, details: verdict.details };
   }
 
-  // Ledger first: the caps are computed from these rows, so they must exist before the state moves.
-  await logActivity(cp, 'dispatch', 'dispatch', input, `SIMULATED dispatch on ${channel}: no real message was sent`, 'success', channel);
+  // Ledger first: the caps are computed from these rows, so they must exist before the state moves. The claim re-checks the
+  // frequency cap and the daily limit and inserts the 'success' activity as ONE atomic step, so two simultaneous dispatches
+  // at the cap boundary can't both get through (checkConflicts above is only the early, non-atomic pass).
+  const claim = await claimDispatchSlot(cp, channel, { input, output: `SIMULATED dispatch on ${channel}: no real message was sent` });
+  if (!claim.allowed) {
+    await logActivity(cp, 'dispatch', 'dispatch', input, `Blocked: ${claim.reason}${claim.details ? ` (${claim.details})` : ''}`, 'failed', channel);
+    return { denied: true, reason: claim.reason, details: claim.details };
+  }
 
   const funnelState = ADVANCE_TO_CONTACTED_FROM.includes(cp.funnel_state) ? 'contacted' : cp.funnel_state;
   const updated = unwrap(await supabase.from('campaign_prospects').update({ funnel_state: funnelState }).eq('id', cp.id).select().single());

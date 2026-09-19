@@ -125,6 +125,8 @@ may happen. **It is simulated: nothing is sent**; it records the dispatch and ad
 
 Only `success` dispatches count toward the caps, so denied attempts never lock a prospect out.
 
+**No race at the cap boundary.** `checkConflicts` is only the early pass that produces a clear reason. The frequency cap and the daily limit are then re-checked and the `success` activity is written as **one atomic step** (`claim_dispatch_slot()`, [db/schema.sql](db/schema.sql)): a Postgres function, so one transaction, under advisory locks per campaign prospect and per campaign + channel. Three simultaneous dispatches at a prospect already at 2 of 3 give exactly one 200 and two 409 `frequency_cap_exceeded`; without this all three went through. supabase-js has no client-side transactions, hence the function. Until it is installed (re-run `db/schema.sql`), the same recheck-then-write runs under an in-process lock, which protects a single server process but not several. The voice path (`run-voice` logs its dispatch after the call) and the cross-campaign check are not covered by this.
+
 **Channel safety net:** for `run-strategy` and `run-followup`, if the agent recommends a channel that isn't enabled in the
 campaign's `channel_config` (`enabled: true`), the run returns **422**, logs a `failed` activity noting the mismatch, and
 stores nothing.

@@ -55,6 +55,24 @@ async function countDispatches(narrow) {
   return count || 0;
 }
 
+// The two count-based checks, on their own so a dispatch can repeat them atomically when it claims its slot.
+//   frequency_cap_exceeded: successful dispatches to this campaign prospect in the last 7 days
+//   daily_limit_reached:    successful dispatches today (UTC) across the campaign on this channel
+async function checkCaps(cp, channel) {
+  const recentDispatches = await countDispatches((q) =>
+    q.eq('campaign_id', cp.campaign_id).eq('prospect_id', cp.prospect_id).gte('created_at', isoAgo(FREQUENCY_WINDOW_MS))
+  );
+  if (recentDispatches >= FREQUENCY_CAP) {
+    return deny('frequency_cap_exceeded', `${recentDispatches} dispatches in the last ${FREQUENCY_WINDOW_DAYS} days (cap ${FREQUENCY_CAP})`);
+  }
+  const limit = dailyLimitFor(cp.campaign.daily_limits, channel);
+  if (limit !== null) {
+    const today = await countDispatches((q) => q.eq('campaign_id', cp.campaign_id).eq('channel', channel).gte('created_at', startOfUtcDay()));
+    if (today >= limit) return deny('daily_limit_reached', `${today} of ${limit} ${channel} dispatches used today`);
+  }
+  return allow();
+}
+
 // Returns { allowed, reason, details }. Checks run in order and stop at the first failure:
 //   0. channel_paused (global)
 //   1. suppressed                 2. prospect_rejected
@@ -131,22 +149,12 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
     }
   }
 
-  // 5. Frequency cap: successful dispatches to this campaign_prospect in the last 7 days.
-  const recentDispatches = await countDispatches((q) =>
-    q.eq('campaign_id', cp.campaign_id).eq('prospect_id', cp.prospect_id).gte('created_at', isoAgo(FREQUENCY_WINDOW_MS))
-  );
-  if (recentDispatches >= FREQUENCY_CAP) {
-    return deny('frequency_cap_exceeded', `${recentDispatches} dispatches in the last 7 days (cap ${FREQUENCY_CAP})`);
-  }
-
-  // 6. Daily limit: successful dispatches today (UTC) across the whole campaign, on this channel.
-  const limit = dailyLimitFor(cp.campaign.daily_limits, channel);
-  if (limit !== null) {
-    const today = await countDispatches((q) => q.eq('campaign_id', cp.campaign_id).eq('channel', channel).gte('created_at', startOfUtcDay()));
-    if (today >= limit) return deny('daily_limit_reached', `${today} of ${limit} ${channel} dispatches used today`);
-  }
+  // 5 + 6. Frequency cap and daily limit. These are also re-checked, under a lock, at the moment a dispatch claims its slot
+  //         (see dispatchSlot.js); this earlier pass is what gives the caller a clear reason before anything is written.
+  const caps = await checkCaps(cp, channel);
+  if (!caps.allowed) return caps;
 
   return allow();
 }
 
-module.exports = { checkConflicts, dailyLimitFor, toNumber, FREQUENCY_CAP, FREQUENCY_WINDOW_DAYS };
+module.exports = { checkConflicts, checkCaps, dailyLimitFor, toNumber, FREQUENCY_CAP, FREQUENCY_WINDOW_DAYS, FREQUENCY_WINDOW_MS };

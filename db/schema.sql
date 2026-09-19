@@ -180,6 +180,67 @@ drop trigger if exists global_settings_updated_at on global_settings;
 create trigger global_settings_updated_at before update on global_settings
   for each row execute function set_updated_at();
 
+-- Atomic dispatch slot -------------------------------------------------------
+-- The conflict gate reads counts and dispatch then writes an activity; with no transaction two simultaneous dispatches
+-- at the cap boundary could both pass. supabase-js has no client-side transactions, so the check-and-claim runs in this
+-- function (one transaction per call). Advisory locks serialise callers per campaign prospect (frequency cap) and per
+-- campaign + channel (daily limit); the second caller's counts are taken after the first has committed, so it sees the
+-- first one's row. Locks are always taken in the same order, so two callers cannot deadlock.
+-- Returns { allowed: true, activity_id } (a 'success' dispatch activity was inserted) or { allowed: false, reason, details }.
+create or replace function claim_dispatch_slot(
+  p_campaign_id    uuid,
+  p_prospect_id    uuid,
+  p_channel        text,
+  p_frequency_cap  integer,   -- null = no cap
+  p_window_seconds integer,   -- frequency window, e.g. 7 days
+  p_daily_limit    integer,   -- null = no daily limit for this channel
+  p_input          text,
+  p_output         text
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_recent    integer;
+  v_today     integer;
+  v_id        uuid;
+  v_day_start timestamptz := date_trunc('day', now() at time zone 'utc') at time zone 'utc';
+begin
+  perform pg_advisory_xact_lock(hashtextextended('dispatch:prospect:' || p_campaign_id::text || ':' || p_prospect_id::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('dispatch:day:' || p_campaign_id::text || ':' || p_channel, 0));
+
+  if p_frequency_cap is not null then
+    select count(*) into v_recent from activities
+     where action_type = 'dispatch' and status = 'success'
+       and campaign_id = p_campaign_id and prospect_id = p_prospect_id
+       and created_at >= now() - make_interval(secs => p_window_seconds);
+    if v_recent >= p_frequency_cap then
+      return jsonb_build_object('allowed', false, 'reason', 'frequency_cap_exceeded',
+        'details', v_recent || ' dispatches in the last ' || (p_window_seconds / 86400) || ' days (cap ' || p_frequency_cap || ')');
+    end if;
+  end if;
+
+  if p_daily_limit is not null then
+    select count(*) into v_today from activities
+     where action_type = 'dispatch' and status = 'success'
+       and campaign_id = p_campaign_id and channel = p_channel
+       and created_at >= v_day_start;
+    if v_today >= p_daily_limit then
+      return jsonb_build_object('allowed', false, 'reason', 'daily_limit_reached',
+        'details', v_today || ' of ' || p_daily_limit || ' ' || p_channel || ' dispatches used today');
+    end if;
+  end if;
+
+  insert into activities (campaign_id, prospect_id, agent_type, action_type, channel, input_summary, output_summary, tokens, cost, status)
+  values (p_campaign_id, p_prospect_id, 'dispatch', 'dispatch', p_channel, p_input, p_output, 0, 0, 'success')
+  returning id into v_id;
+
+  return jsonb_build_object('allowed', true, 'activity_id', v_id);
+end;
+$$;
+-- Only the backend (service_role) may call it.
+revoke all on function claim_dispatch_slot(uuid, uuid, text, integer, integer, integer, text, text) from public, anon, authenticated;
+grant execute on function claim_dispatch_slot(uuid, uuid, text, integer, integer, integer, text, text) to service_role;
+
 -- RLS: on, with no policies. Only the service_role key (used by this backend) can access. -----
 alter table campaigns          enable row level security;
 alter table reps               enable row level security;
