@@ -29,15 +29,17 @@ function buildProspectSummary(prospect, campaignProspect) {
   ];
 
   // Everything else we know about the prospect or company is passed along as enrichment.
+  // The research agent's output ('research') gets its own labeled section below instead of an inline key.
   const used = new Set(['employee_count', 'employees', 'company_size', 'size', 'industry', 'location', 'headquarters', 'hq']);
   const enrichment = [
     ...Object.entries(company).filter(([k]) => !used.has(k)),
-    ...Object.entries(context).filter(([k]) => !used.has(k)),
+    ...Object.entries(context).filter(([k]) => !used.has(k) && k !== 'research'),
   ].filter(([, v]) => present(v));
   if (enrichment.length) {
     lines.push('', 'Enrichment data:');
     for (const [k, v] of enrichment) lines.push(`- ${k}: ${show(v)}`);
   }
+  if (present(context.research)) lines.push('', 'Enrichment findings:', String(context.research).trim());
   return lines.join('\n');
 }
 

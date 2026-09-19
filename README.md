@@ -50,7 +50,7 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 
 | Step | Agent / action | Notes |
 | --- | --- | --- |
-| `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json`; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). An `Escalate` decision is recorded as `qualified` and also queues a pending `approvals` row (`proposed_action_json`: `{ type: "icp_escalation", score, reasoning }`, linked to the icp activity). |
+| `run-icp` | `icp` / `score` | Scores against the campaign's `icp_json` (sent as `icp_criteria`); if `run-research` has run, its output is included in the prompt under "Enrichment findings:"; sets `icp_score`, `icp_reasoning`, `funnel_state` (`qualified` / `rejected`). An `Escalate` decision is recorded as `qualified` and also queues a pending `approvals` row (`proposed_action_json`: `{ type: "icp_escalation", score, reasoning }`, linked to the icp activity). |
 | `run-research` | `research` / `enrich` | Raw text stored in `context_json.research`. |
 | `run-personalize` | `personalisation` / `draft_email` | Needs `qualified` + research. Prompt names the sender: the prospect's `assigned_rep_id`, else an active rep on the campaign (`campaign_reps`), using `reps.identity_for_outreach`. Stores `email_subject`, `email_body`, `email_snippets_used`. |
 | `run-strategy` | `strategy` / `decide` | Needs `qualified`. Prompt includes research, recent activity, enabled channels. Stores `context_json.strategy`. |
