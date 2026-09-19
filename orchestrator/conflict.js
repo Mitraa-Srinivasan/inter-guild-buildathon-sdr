@@ -55,7 +55,7 @@ async function countDispatches(narrow) {
 
 // Returns { allowed, reason, details }. Checks run in order and stop at the first failure:
 //   1. suppressed                 2. prospect_rejected
-//   3. pending_approval           4. active_in_other_campaign
+//   3. approval_rejected / pending_approval   4. active_in_other_campaign
 //   5. frequency_cap_exceeded     6. daily_limit_reached
 // options.channel selects which channel's daily limit applies (no channel -> no daily limit).
 async function checkConflicts(campaignProspectId, { channel } = {}) {
@@ -71,22 +71,27 @@ async function checkConflicts(campaignProspectId, { channel } = {}) {
   // 2. A prospect that ICP scoring rejected is never contacted.
   if (cp.funnel_state === 'rejected') return deny('prospect_rejected', "prospect is in funnel_state 'rejected'");
 
-  // 3. A pending approval (e.g. an ICP escalation) means a human hasn't signed off yet: hold the outreach.
-  //    Scoped to this campaign prospect; once the approval is approved/rejected it no longer blocks.
-  const pendingApprovals = unwrap(
+  // 3. Approvals for this campaign prospect (e.g. an ICP escalation), scoped to this campaign.
+  //    A REJECTED approval is a permanent no: a human said not to contact this prospect. It is checked before pending
+  //    ones, so a rejection can't be undone by a later approval being queued or approved.
+  //    A PENDING approval holds the outreach until a human decides; once approved it no longer blocks.
+  const approvals = unwrap(
     await supabase
       .from('approvals')
-      .select('id, proposed_action_json')
+      .select('id, status, proposed_action_json')
       .eq('campaign_id', cp.campaign_id)
       .eq('prospect_id', cp.prospect_id)
-      .eq('status', 'pending')
+      .in('status', ['rejected', 'pending'])
       .order('created_at', { ascending: true })
-      .limit(1)
   );
-  if (pendingApprovals.length) {
-    const type = pendingApprovals[0].proposed_action_json && pendingApprovals[0].proposed_action_json.type;
-    return deny('pending_approval', `approval ${pendingApprovals[0].id} is pending${type ? ` (${type})` : ''}`);
-  }
+  const describe = (a) => {
+    const type = a.proposed_action_json && a.proposed_action_json.type;
+    return `approval ${a.id}${type ? ` (${type})` : ''}`;
+  };
+  const rejected = approvals.find((a) => a.status === 'rejected');
+  if (rejected) return deny('approval_rejected', `${describe(rejected)} was rejected by a reviewer`);
+  const pending = approvals.find((a) => a.status === 'pending');
+  if (pending) return deny('pending_approval', `${describe(pending)} is pending`);
 
   // 4. Same prospect in another live campaign with a (non-failed) dispatch in the last 48h.
   //    Only dispatches count: research/ICP/etc. running on the prospect in two campaigns must not block outreach.
