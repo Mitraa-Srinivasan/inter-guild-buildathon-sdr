@@ -34,7 +34,7 @@ const campaigns = [
       },
       exclusions: { industries: ['Fintech startups under 50 employees'], competitors: true },
     },
-    channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: true } },
+    channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: true }, sms: { enabled: true } },
     daily_limits: { email: 30, linkedin: 15, phone: 10 },
   },
   {
