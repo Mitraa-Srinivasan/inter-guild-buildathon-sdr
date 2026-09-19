@@ -1,5 +1,7 @@
 const router = require('express').Router();
 const { supabase } = require('../db/supabase');
+const { gmailStatus } = require('../lib/mailer');
+const { discoveryConfig } = require('../agents/discovery');
 
 // The env vars each DronaHQ agent trigger needs (see agents/dronaHQ.js and .env.example).
 const DRONAHQ_ENV = ['ICP', 'RESEARCH', 'PERSONALIZE', 'STRATEGY', 'CONVERSATION', 'FOLLOWUP', 'VOICE'].flatMap((a) => [
@@ -30,7 +32,17 @@ router.get('/services', async (req, res) => {
     detail: missing.length ? `${missing.length} webhook setting(s) missing` : 'all 7 agent webhooks configured (not pinged: runs cost credits)',
   });
 
-  res.json({ ok: services.every((s) => s.ok), healthy: services.filter((s) => s.ok).length, total: services.length, services });
+  // Optional integrations, shown on the Integrations page. They do NOT count toward healthy/total above: an unconfigured one is
+  // simply not connected, not an outage. Gmail is checked with a login handshake (no email is sent), cached for 10 minutes.
+  const disc = discoveryConfig();
+  const gmail = await gmailStatus();
+  const integrations = {
+    gmail: { connected: gmail.configured && gmail.verified !== false, ...gmail },
+    groq: { connected: disc.groq, detail: disc.groq ? 'GROQ_API_KEY is set' : 'GROQ_API_KEY not set' },
+    tavily: { connected: disc.tavily, detail: disc.tavily ? 'TAVILY_API_KEY is set' : 'TAVILY_API_KEY not set' },
+  };
+
+  res.json({ ok: services.every((s) => s.ok), healthy: services.filter((s) => s.ok).length, total: services.length, services, integrations });
 });
 
 module.exports = router;

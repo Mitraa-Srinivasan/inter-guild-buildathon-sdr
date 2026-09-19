@@ -129,7 +129,7 @@ Every run-* step appends the active version to the prompt as `Campaign-specific 
 ## Dispatch and the conflict gate
 
 `POST /campaign-prospects/:id/dispatch` with body `{ channel }` is the step that decides whether an actual outreach action
-may happen. **It is simulated: nothing is sent**; it records the dispatch and advances the funnel.
+may happen. It records the dispatch and advances the funnel. **LinkedIn, SMS and voice are simulated: nothing is sent.** Email is real only when the campaign prospect already has a personalized subject and body stored (from an earlier `run-personalize`; dispatch never drafts or calls an agent) and Gmail is configured (`EMAIL_USER` and a Google app password in `EMAIL_APP_PASSWORD`, sent with Nodemailer over Gmail SMTP). **Every real email is redirected**: it goes to `EMAIL_TEST_RECIPIENT` (default: the sending account itself), never to the prospect's address, with a `[Demo]` subject prefix and a banner naming who it was written for. An email with nothing drafted, or a prospect with no address, is still simulated (and the activity says why). The send happens only after the atomic cap check has claimed the slot; if Gmail refuses, the activity becomes `failed` (so it never counts toward a cap), the prospect does not move, and the call returns 502. The activity records the message id and Google's reply, and `context_json.email_sent` records what went out. Note that the autonomous loop's `dispatch` step sends real (redirected) email too once autonomous mode is on.
 
 1. `gate.js` runs first (kill switch / campaign live): **423** on failure, unchanged.
 2. The channel must be enabled for the campaign, then `checkConflicts` in [orchestrator/conflict.js](orchestrator/conflict.js)
