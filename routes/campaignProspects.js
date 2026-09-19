@@ -9,6 +9,7 @@ const { runStrategy } = require('../orchestrator/strategy');
 const { runConversation } = require('../orchestrator/conversation');
 const { runFollowup } = require('../orchestrator/followup');
 const { runVoice } = require('../orchestrator/voice');
+const { runDispatch } = require('../orchestrator/dispatch');
 
 const FIELDS = [
   'campaign_id',
@@ -110,6 +111,22 @@ router.post('/:id/run-voice', async (req, res) => {
   try {
     const result = await runVoice(req.params.id);
     if (result.blocked) return res.status(423).json({ blocked: true, reason: result.reason });
+    res.json(result.campaignProspect);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Outreach dispatch (simulated). Body: { channel } (required).
+// 423 = pre-send gate (kill switch / campaign not live). 409 { blocked, reason, details } = conflict gate said no
+// (suppressed, active_in_other_campaign, frequency_cap_exceeded, daily_limit_reached, channel_not_enabled).
+router.post('/:id/dispatch', async (req, res) => {
+  try {
+    const channel = req.body && req.body.channel;
+    if (typeof channel !== 'string' || !channel.trim()) throw new HttpError(400, 'Missing required field(s): channel');
+    const result = await runDispatch(req.params.id, channel);
+    if (result.blocked) return res.status(423).json({ blocked: true, reason: result.reason });
+    if (result.denied) return res.status(409).json({ blocked: true, reason: result.reason, details: result.details });
     res.json(result.campaignProspect);
   } catch (err) {
     handleError(res, err);

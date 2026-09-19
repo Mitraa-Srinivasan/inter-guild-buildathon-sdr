@@ -16,13 +16,14 @@ async function loadCampaignProspect(id) {
   return cp;
 }
 
-async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status) {
+async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status, channel = null) {
   unwrap(
     await supabase.from('activities').insert({
       campaign_id: cp.campaign_id,
       prospect_id: cp.prospect_id,
       agent_type: agentType,
       action_type: actionType,
+      channel,
       input_summary: inputSummary,
       output_summary: outputSummary,
       status,

@@ -58,6 +58,28 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 | `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
 | `run-voice` | `voice` / `call` | Requires the `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call`. |
 
+## Dispatch and the conflict gate
+
+`POST /campaign-prospects/:id/dispatch` with body `{ channel }` is the step that decides whether an actual outreach action
+may happen. **It is simulated: nothing is sent**; it records the dispatch and advances the funnel.
+
+1. `gate.js` runs first (kill switch / campaign live): **423** on failure, unchanged.
+2. The channel must be enabled for the campaign, then `checkConflicts` in [orchestrator/conflict.js](orchestrator/conflict.js)
+   runs its checks in order and stops at the first failure:
+
+   | reason | Meaning |
+   | --- | --- |
+   | `suppressed` | Prospect's email is in `suppression_list` (scope `global`, compared lowercased). |
+   | `active_in_other_campaign` | Same prospect is in another **live** campaign with a non-failed activity in the last 48h. `details` = that campaign's name. |
+   | `frequency_cap_exceeded` | 3 or more successful dispatches to this campaign prospect in the last 7 days. |
+   | `daily_limit_reached` | Successful dispatches today (UTC) for the campaign on this channel reached `daily_limits[channel]`. No limit set = unlimited. |
+
+3. A deny returns **409** `{ blocked: true, reason, details }` and logs a `failed` `dispatch` activity with the reason
+   (`channel_not_enabled` is reported the same way). An allow logs a `success` `dispatch` activity and moves
+   `discovered` / `researched` / `qualified` to `contacted`; later stages and `rejected` are left as they are.
+
+Only `success` dispatches count toward the caps, so denied attempts never lock a prospect out.
+
 **Channel safety net:** for `run-strategy` and `run-followup`, if the agent recommends a channel that isn't enabled in the
 campaign's `channel_config` (`enabled: true`), the run returns **422**, logs a `failed` activity noting the mismatch, and
 stores nothing.
