@@ -14,7 +14,7 @@ const { CAMPAIGN_STATUS, FUNNEL_STATE, AGENT_TYPES } = require('../lib/enums');
 const { buildCostReport } = require('../lib/costReport');
 
 const FIELDS = [
-  'name', 'description', 'owner', 'status', 'icp_json', 'channel_config', 'daily_limits', 'enabled_agents',
+  'name', 'description', 'owner', 'status', 'icp_json', 'channel_config', 'daily_limits', 'enabled_agents', 'sample_profiles',
 ];
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -29,9 +29,14 @@ function validateEnabledAgents(v) {
   }
 }
 
+function validateSampleProfiles(v) {
+  if (!Array.isArray(v) || !v.every(isPlainObject)) throw new HttpError(400, 'sample_profiles must be an array of objects');
+}
+
 function validateCampaignBody(body) {
   assertOneOf('status', body.status, CAMPAIGN_STATUS);
   if (body.enabled_agents !== undefined) validateEnabledAgents(body.enabled_agents);
+  if (body.sample_profiles !== undefined) validateSampleProfiles(body.sample_profiles);
 }
 
 router.post('/', async (req, res) => {

@@ -19,6 +19,19 @@ const campaigns = [
     },
     channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: false } },
     daily_limits: { email: 50, linkedin: 20 },
+    // An example ideal prospect for this campaign (matches icp_json above).
+    sample_profiles: [
+      {
+        name: 'Maya Okonkwo',
+        title: 'CTO',
+        company: 'Relaywise',
+        company_size: 240,
+        industry: 'B2B SaaS',
+        location: 'Austin, TX, United States',
+        funding_stage: 'Series B',
+        why_ideal: 'Senior engineering leader at a mid-size US B2B SaaS company that just raised and is hiring platform engineers.',
+      },
+    ],
   },
   {
     name: 'India BFSI CIO',
@@ -36,6 +49,17 @@ const campaigns = [
     },
     channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: true }, sms: { enabled: true } },
     daily_limits: { email: 30, linkedin: 15, phone: 10 },
+    sample_profiles: [
+      {
+        name: 'Priya Menon',
+        title: 'CIO',
+        company: 'Bharat Mutual Insurance',
+        company_size: 4200,
+        industry: 'Insurance',
+        location: 'Mumbai, India',
+        why_ideal: 'C-level technology owner at a large Indian insurer (500+ employees) modernising core systems.',
+      },
+    ],
   },
   {
     name: 'Voice AI Founders',
@@ -54,6 +78,18 @@ const campaigns = [
     },
     channel_config: { email: { enabled: true }, linkedin: { enabled: true }, phone: { enabled: false }, voice: { enabled: true } },
     daily_limits: { email: 40, linkedin: 25 },
+    sample_profiles: [
+      {
+        name: 'Vera Lindqvist',
+        title: 'Founder & CEO',
+        company: 'Echo Labs',
+        company_size: 12,
+        industry: 'Voice AI',
+        location: 'London, United Kingdom',
+        funding_stage: 'Seed',
+        why_ideal: 'Founder of a small, seed-stage speech / voice AI company in one of the target geographies.',
+      },
+    ],
   },
 ];
 
@@ -107,7 +143,9 @@ async function seed() {
   console.log('Seed complete.');
 }
 
-seed().catch((err) => {
+if (require.main === module) seed().catch((err) => {
   console.error('Seed failed:', err.message || err);
   process.exit(1);
 });
+
+module.exports = { campaigns };

@@ -40,6 +40,10 @@ lib/                 http.js (validation + error mapping), enums.js
 | approvals | `POST /approvals`, `GET /approvals`, `GET /approvals/:id`, `PATCH /approvals/:id` |
 | meetings | `POST /meetings`, `GET /meetings` |
 
+**Campaign settings.** Besides `channel_config` and `daily_limits`, a campaign has:
+- `enabled_agents`, e.g. `{ "voice": false }`, which pauses that agent for the campaign: its run-* endpoint then returns 423 `{ blocked: true, reason: "agent_paused" }`. Any agent not set to `false` is enabled (default `{}`). Keys are the agent types `icp`, `research`, `personalisation`, `strategy`, `conversation`, `follow`, `voice`; unknown names are a 400. `PATCH /campaigns/:id` **merges** `enabled_agents` into the stored object, so pausing one agent never re-enables another; send `{ "voice": true }` to re-enable. `dispatch` is not an agent and is not affected.
+- `sample_profiles`, an array of example ideal-prospect profiles (default `[]`). The seed adds one per campaign, matching its ICP.
+
 **Cost report:** `GET /campaigns/:id/cost-report` returns, from that campaign's activities and prospects: `total_cost`, `total_prospects`, `qualified_count` (funnel state qualified, contacted, engaged, meeting or opportunity), `cost_per_prospect`, `cost_per_qualified_lead`, `conversation_count` and `cost_per_conversation`. Costs are USD **estimates** (see below); a ratio is `null` when its divisor is 0.
 
 List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple filters (e.g. `?status=`, `?campaign_id=`).
