@@ -2,7 +2,7 @@ const { supabase, unwrap } = require('../db/supabase');
 const { HttpError, notFound } = require('../lib/http');
 const { preSendGate } = require('./gate');
 const { callDronaHQAgent } = require('../agents/dronaHQ');
-const { logActivity } = require('./common');
+const { logActivity, logFailedActivity } = require('./common');
 
 const DECISION_TO_STATE = { qualified: 'qualified', rejected: 'rejected', escalate: 'qualified' };
 
@@ -99,24 +99,6 @@ function parseIcpResponse(raw) {
   return { score: parseInt(scoreMatch[1], 10), decision, funnelState: DECISION_TO_STATE[decision] };
 }
 
-async function logFailedActivity(cp, prompt, raw, reason) {
-  try {
-    unwrap(
-      await supabase.from('activities').insert({
-        campaign_id: cp.campaign_id,
-        prospect_id: cp.prospect_id,
-        agent_type: 'icp',
-        action_type: 'score',
-        input_summary: prompt,
-        output_summary: `${reason}\n\n${raw}`,
-        status: 'failed',
-      })
-    );
-  } catch (logErr) {
-    console.error('Failed to record failed ICP activity:', logErr);
-  }
-}
-
 // Returns { blocked: true, reason } if the gate stops the run, otherwise { blocked: false, campaignProspect }.
 async function runIcp(campaignProspectId) {
   const cp = unwrap(
@@ -139,7 +121,7 @@ async function runIcp(campaignProspectId) {
   try {
     raw = await callDronaHQAgent('icp', prospectSummary, { icp_criteria: icpCriteria });
   } catch (err) {
-    await logFailedActivity(cp, prompt, '', err.message);
+    await logFailedActivity(cp, 'icp', 'score', prompt, '', err.message);
     throw err;
   }
 
@@ -147,7 +129,7 @@ async function runIcp(campaignProspectId) {
   try {
     parsed = parseIcpResponse(raw);
   } catch (err) {
-    await logFailedActivity(cp, prompt, raw, err.message);
+    await logFailedActivity(cp, 'icp', 'score', prompt, raw, err.message);
     throw err;
   }
 

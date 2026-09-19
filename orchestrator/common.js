@@ -16,8 +16,41 @@ async function loadCampaignProspect(id) {
   return cp;
 }
 
-// Inserts an activity row and returns its id.
-async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status, channel = null) {
+// ---- Usage and cost: ESTIMATES, not measured -------------------------------------------------------------
+// DronaHQ's webhook responses don't report token usage, so activities.tokens / activities.cost are estimated:
+//   tokens = (input chars + output chars) / 4          (rough chars-per-token rule of thumb)
+//   cost   = tokens at the per-agent credit rates below, converted at 500 credits = $1
+// They only see the text we send and store (input_summary / output_summary), so they leave out each agent's
+// own instructions and knowledge-base context on the DronaHQ side. Treat them as ballpark figures.
+// Rates are credits per 1k tokens. Agent types with no LLM (e.g. 'dispatch') record 0 tokens and $0.
+const CHARS_PER_TOKEN = 4;
+const CREDITS_PER_USD = 500;
+const RATES = {
+  icp: { model: 'gpt-4o-mini', in: 0.15, out: 0.6 },
+  research: { model: 'gemini-2.5-flash-lite', in: 0.1, out: 0.4 },
+  strategy: { model: 'gemini-2.5-flash', in: 0.3, out: 2.5 },
+  personalisation: { model: 'claude-sonnet-4-6', in: 3, out: 15 },
+  conversation: { model: 'gemini-2.5-flash', in: 0.3, out: 2.5 },
+  voice: { model: 'gpt-4o-mini', in: 0.15, out: 0.6 },
+  follow: { model: 'gpt-4o-mini', in: 0.15, out: 0.6 },
+};
+
+// Returns { model, tokens, cost } (cost in USD, 6 decimals). responded=false means the agent never answered
+// (call failed or timed out): no usage is assumed, so tokens and cost are 0.
+function estimateUsage(agentType, input, output, responded = true) {
+  const rate = RATES[agentType];
+  if (!rate) return { model: null, tokens: 0, cost: 0 };
+  if (!responded) return { model: rate.model, tokens: 0, cost: 0 };
+  const inTokens = String(input || '').length / CHARS_PER_TOKEN;
+  const outTokens = String(output || '').length / CHARS_PER_TOKEN;
+  const credits = (inTokens / 1000) * rate.in + (outTokens / 1000) * rate.out;
+  return { model: rate.model, tokens: Math.ceil(inTokens + outTokens), cost: Number((credits / CREDITS_PER_USD).toFixed(6)) };
+}
+
+// The one place activities are written by the orchestrator: inserts the row with model / tokens / cost
+// estimates filled in, and returns its id. options.responded=false marks a run where the agent never answered.
+async function logActivity(cp, agentType, actionType, inputSummary, outputSummary, status, channel = null, { responded = true } = {}) {
+  const usage = estimateUsage(agentType, inputSummary, outputSummary, responded);
   const row = unwrap(
     await supabase
       .from('activities')
@@ -27,8 +60,12 @@ async function logActivity(cp, agentType, actionType, inputSummary, outputSummar
         agent_type: agentType,
         action_type: actionType,
         channel,
+        prompt_version_id: null,
+        model: usage.model,
         input_summary: inputSummary,
         output_summary: outputSummary,
+        tokens: usage.tokens,
+        cost: usage.cost,
         status,
       })
       .select('id')
@@ -38,9 +75,10 @@ async function logActivity(cp, agentType, actionType, inputSummary, outputSummar
 }
 
 // Best effort: a failed run should leave a trace, but logging must never mask the original error.
+// An empty `raw` means the agent never answered, so no usage is estimated.
 async function logFailedActivity(cp, agentType, actionType, prompt, raw, reason) {
   try {
-    await logActivity(cp, agentType, actionType, prompt, raw ? `${reason}\n\n${raw}` : reason, 'failed');
+    await logActivity(cp, agentType, actionType, prompt, raw ? `${reason}\n\n${raw}` : reason, 'failed', null, { responded: Boolean(raw) });
   } catch (logErr) {
     console.error(`Failed to record failed ${agentType} activity:`, logErr);
   }
@@ -135,4 +173,4 @@ async function runAgentStep(campaignProspectId, step) {
   return { blocked: false, campaignProspect: updated };
 }
 
-module.exports = { loadCampaignProspect, logActivity, logFailedActivity, mergeContext, parseFields, runAgentStep };
+module.exports = { loadCampaignProspect, logActivity, logFailedActivity, mergeContext, parseFields, runAgentStep, estimateUsage, RATES };

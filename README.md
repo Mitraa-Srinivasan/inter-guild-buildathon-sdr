@@ -58,6 +58,11 @@ All are `POST /campaign-prospects/:id/<step>` and go through the same pre-send g
 | `run-followup` | `follow` / `decide` | Prompt from recent activity + enabled channels. Stores `context_json.next_followup`. |
 | `run-voice` | `voice` / `call` | Requires the `phone` channel enabled on the campaign (400 otherwise). Stores `context_json.voice_call`. |
 
+**Usage and cost (estimates):** every activity row carries `model`, `tokens` and `cost` (USD), filled in by `logActivity` in
+[orchestrator/common.js](orchestrator/common.js). DronaHQ webhooks don't report usage, so these are **estimated**, not measured:
+tokens = (input chars + output chars) / 4, priced with a per-agent credits-per-1k-tokens table at 500 credits = $1. They leave out each
+agent's own instructions on the DronaHQ side. Rows with no LLM (`dispatch`) and runs where the agent never answered record 0.
+
 ## Dispatch and the conflict gate
 
 `POST /campaign-prospects/:id/dispatch` with body `{ channel }` is the step that decides whether an actual outreach action
