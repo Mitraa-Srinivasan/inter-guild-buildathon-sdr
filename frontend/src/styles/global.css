@@ -21,21 +21,27 @@ button { font: inherit; }
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
-  width: 260px;
+  width: 248px;
   background: rgba(7, 17, 31, 0.78);
   border-right: 1px solid var(--line);
-  padding: 24px 18px;
+  padding: 18px 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .brand {
-  display: flex; align-items: center; gap: 12px; padding: 8px 10px; font-size: 1.1rem;
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px; font-size: 1.02rem;
 }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 12px; background: linear-gradient(135deg, var(--primary), var(--secondary));
@@ -45,20 +51,33 @@ button { font: inherit; }
 .brand span { color: var(--muted); }
 
 .nav {
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+  margin-top: 4px;
 }
 .nav-item {
-  border: 1px solid transparent; background: transparent; color: var(--text); text-align: left; padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;
+  border: 1px solid transparent; background: transparent; color: var(--text); text-align: left; padding: 9px 10px; border-radius: 9px; cursor: pointer; transition: all 0.2s ease; font-size: 0.92rem;
 }
 .nav-item:hover, .nav-item.active {
   background: rgba(94, 234, 212, 0.12); border-color: rgba(94, 234, 212, 0.2); color: var(--primary);
 }
 
 .sidebar-footer {
-  margin-top: auto; display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.utility-item {
+  font-size: 0.8rem;
+  padding: 8px 10px;
+  color: var(--muted);
+}
+.utility-item:hover {
+  color: var(--primary);
 }
 .user-pill {
-  display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: rgba(148,163,184,0.04);
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px; background: rgba(148,163,184,0.04);
+  margin-top: 10px;
 }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #a78bfa, #34d399); display: grid; place-items: center; font-weight: 700; color: #09131a;
@@ -69,6 +88,8 @@ button { font: inherit; }
 
 .main-panel {
   flex: 1; padding: 28px 34px 40px;
+  height: 100vh;
+  overflow-y: auto;
 }
 .topbar {
   display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 28px;

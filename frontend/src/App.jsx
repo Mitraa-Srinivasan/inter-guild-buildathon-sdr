@@ -630,14 +630,15 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <button className="nav-item">Settings</button>
-          <button className="nav-item">Help</button>
-          <div className="user-pill">
-            <div className="avatar">AM</div>
-            <div>
-              <strong>Ava Manager</strong>
-              <small>ADMIN</small>
-            </div>
+          <button className="nav-item utility-item">Settings</button>
+          <button className="nav-item utility-item">Help</button>
+        </div>
+
+        <div className="user-pill">
+          <div className="avatar">AM</div>
+          <div>
+            <strong>Ava Manager</strong>
+            <small>ADMIN</small>
           </div>
         </div>
       </aside>
