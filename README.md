@@ -7,7 +7,7 @@ Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-
 1. Create a Supabase project, then run [db/schema.sql](db/schema.sql) in the SQL editor (safe to re-run).
 2. `cp .env.example .env` and fill in the values (see below). Use the **service_role** Supabase key; RLS is on with no policies.
 3. `npm install`
-4. `npm run seed` creates the 3 sample campaigns (idempotent).
+4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" (idempotent).
 5. `npm start` (or `npm run dev`), default port 3000.
 
 Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
