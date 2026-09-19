@@ -129,6 +129,8 @@ h1.page-t{font-family:var(--serif);font-weight:600;font-size:25px;letter-spacing
 .btn.accent:hover{opacity:.9}
 .btn.danger{color:var(--red);border-color:var(--red)}
 .btn.danger:hover{background:var(--red-dim)}
+.btn.warn{color:var(--amber);border-color:var(--amber)}
+.btn.warn:hover{background:var(--amber-dim)}
 .btn.ghost{border-color:transparent;background:transparent}
 .btn.ghost:hover{background:var(--bg-elev2)}
 .btn.sm{padding:5px 11px;font-size:11.5px}
@@ -313,7 +315,7 @@ const S={page:'overview',theme:null,campId:null,campTab:'Overview',campFilter:'a
  convTab:'all',killed:false,collapsed:false,modal:null,drawer:null,
  ready:false,loadError:null,busy:false,
  cps:{},acts:{},meetings:[],campReps:[],costs:{},pv:{},
- health:null,spend:null,guard:null,gchan:{},gchanMissing:false};
+ health:null,spend:null,guard:null,gchan:{},gchanMissing:false,auto:false,autoMissing:false,working:null};
 try{S.collapsed=localStorage.getItem('sdr-collapsed')==='1'}catch(_){}
 const camp=id=>CAMPAIGNS.find(c=>c.id===id);
 const pro=id=>PROS.find(p=>p.id===id);
@@ -404,7 +406,7 @@ function lastChannel(campId,prospectId){
   const a=(S.acts[campId]||[]).find(x=>x.prospect_id===prospectId&&x.channel&&x.status==='success');
   return a?a.channel:null;
 }
-const ACT_L={score:'Scored ICP fit',enrich:'Researched',draft_email:'Drafted email',decide:'Decided next step',classify_reply:'Classified reply',call:'Voice call (simulated)'};
+const ACT_L={discover:'Discovered prospects',score:'Scored ICP fit',enrich:'Researched',draft_email:'Drafted email',decide:'Decided next step',classify_reply:'Classified reply',call:'Voice call (simulated)'};
 function actTitle(a){
   const base=ACT_L[a.action_type]||a.action_type;
   if(a.status==='failed')return `${base} failed`+(a.output_summary?`: ${a.output_summary.split('\n')[0].slice(0,110)}`:'');
@@ -451,6 +453,11 @@ async function loadChannels(){
   try{S.gchan=(await api('GET','/global-settings/channels')).channels||{};S.gchanMissing=false}
   catch(e){if(e.status===503)S.gchanMissing=true}
 }
+// Autonomous mode flag. A 503 means the database column has not been added yet (run db/schema.sql); it is then treated as off.
+async function loadAutonomous(){
+  try{S.auto=!!(await api('GET','/global-settings/autonomous-mode')).autonomous_mode;S.autoMissing=false}
+  catch(e){if(e.status===503){S.autoMissing=true;S.auto=false}}
+}
 async function loadMeetings(){S.meetings=await apiAll('/meetings')}
 async function loadCampReps(){S.campReps=await apiAll('/campaign-reps')}
 async function loadReps(){REPS=await apiAll('/reps')}
@@ -476,7 +483,7 @@ function taskFromApproval(a){
 async function loadApprovals(){TASKS=(await apiAll('/approvals?status=pending')).map(taskFromApproval)}
 async function loadAll(){
   CAMPAIGNS=await apiAll('/campaigns');
-  await Promise.all([loadKill(),loadApprovals(),loadMeetings(),loadCampReps(),loadReps(),loadSuppression(),loadHealth(),loadSpend(),loadGuard(),loadChannels(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
+  await Promise.all([loadKill(),loadApprovals(),loadMeetings(),loadCampReps(),loadReps(),loadSuppression(),loadHealth(),loadSpend(),loadGuard(),loadChannels(),loadAutonomous(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
   rebuildAll();
 }
 async function boot(){
@@ -498,7 +505,7 @@ async function refreshFor(p){
     else if(p==='prospects'||p==='conversations')await Promise.all([loadApprovals(),...ids.map(loadCampData)]);
     else if(p==='tasks')await loadApprovals();
     else if(p==='analytics')await Promise.all([loadMeetings(),loadCosts(ids),...ids.map(loadCampData)]);
-    else if(p==='settings')await Promise.all([loadKill(),loadReps(),loadSuppression(),loadCampReps(),loadGuard(),loadChannels()]);
+    else if(p==='settings')await Promise.all([loadKill(),loadReps(),loadSuppression(),loadCampReps(),loadGuard(),loadChannels(),loadAutonomous()]);
     else return;
     if(S.page!==p)return;
     rebuildAll();render();
@@ -635,7 +642,7 @@ function feedRows(items,withAge){
   if(!items.length)return '<div class="empty">No agent activity yet.</div>';
   return items.map(e=>`<div style="display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line2);align-items:center">
     <div style="width:32px;height:32px;border-radius:9px;background:var(--bg-elev2);display:grid;place-items:center;color:var(--ink2)">${ic(agent(e.a)?.icon||'bolt',15)}</div>
-    <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px">${esc(e.t)}</div><div class="mute" style="font-size:11.5px;margin-top:1px">${esc(agent(e.a)?.name||(e.a==='dispatch'?'Dispatch':e.a))} · ${esc(e.s)}</div></div>
+    <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px">${esc(e.t)}</div><div class="mute" style="font-size:11.5px;margin-top:1px">${esc(agent(e.a)?.name||({dispatch:'Dispatch',discovery:'Discovery'}[e.a]||e.a))} · ${esc(e.s)}</div></div>
     <div class="mute num" style="font-size:11.5px">${ago(e.at)}</div></div>`).join('');
 }
 function sparkChart(pts,labels){
@@ -703,8 +710,8 @@ function campTabBody(c,t){
         <section class="card"><div class="card-h"><h3>Outcomes</h3></div><div class="card-b"><dl class="kv"><dt>Meetings</dt><dd>${c.meet}</dd><dt>Opportunities</dt><dd>${c.opp}</dd><dt>Conversion</dt><dd>${c.conv}</dd><dt>Owner</dt><dd>${esc(c.owner)}</dd><dt>Created</dt><dd>${c.created}</dd></dl></div></section>
       </div></div>`;
   }
-  if(t==='Prospects') return prosTable(PROS.filter(p=>p.camp===c.id),true);
-  if(t==='Activity') return `<section class="card">${(S.acts[c.id]||[]).map(a=>feedItem(a,c)).map(e=>`<div style="display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line2)"><div style="width:30px;height:30px;border-radius:8px;background:var(--bg-elev2);display:grid;place-items:center">${ic(agent(e.a)?.icon||'bolt',14)}</div><div><div style="font-weight:600;font-size:12.5px">${esc(e.t)}</div><div class="mute" style="font-size:11px">${esc(agent(e.a)?.name||(e.a==='dispatch'?'Dispatch':e.a))} · ${esc(e.s)} · ${ago(e.at)}</div></div></div>`).join('')||'<div class="empty">No activity for this campaign yet.</div>'}</section>`;
+  if(t==='Prospects') return discoverBar(c)+prosTable(PROS.filter(p=>p.camp===c.id),true);
+  if(t==='Activity') return `<section class="card">${(S.acts[c.id]||[]).map(a=>feedItem(a,c)).map(e=>`<div style="display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line2)"><div style="width:30px;height:30px;border-radius:8px;background:var(--bg-elev2);display:grid;place-items:center">${ic(agent(e.a)?.icon||'bolt',14)}</div><div><div style="font-weight:600;font-size:12.5px">${esc(e.t)}</div><div class="mute" style="font-size:11px">${esc(agent(e.a)?.name||({dispatch:'Dispatch',discovery:'Discovery'}[e.a]||e.a))} · ${esc(e.s)} · ${ago(e.at)}</div></div></div>`).join('')||'<div class="empty">No activity for this campaign yet.</div>'}</section>`;
   if(t==='Agents') return `<div class="grid gauto">${AGENTS.map(a=>{const paused=c.enabled_agents?.[a.id]===false;
     const lastRun=(S.acts[c.id]||[]).find(x=>x.agent_type===a.id);
     return `<section class="card" style="padding:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="display:flex;gap:9px;align-items:center"><div style="width:28px;height:28px;border-radius:8px;background:var(--bg-elev2);display:grid;place-items:center">${ic(a.icon,14)}</div><b style="font-size:13px">${a.name}</b></div><span class="pill ${paused?'paused':'live'}">${paused?'Paused':'Active'}</span></div>
@@ -718,6 +725,16 @@ function campTabBody(c,t){
     ${KB.map(k=>`<tr><td><b>${esc(k.name)}</b></td><td class="mute">${k.type}</td><td>${k.used.includes(c.name)?`<span class="pill live">${ic('check',11)} In use</span>`:'<span class="mute">Not attached</span>'}</td></tr>`).join('')}
     </tbody></table></div></section>`;
   return '';
+}
+// Two ways to find new prospects. Discover only searches the web (Tavily) and reads it with Groq: cheap, no DronaHQ credits.
+// Discover & qualify then runs the real DronaHQ Research and ICP agents on each new prospect: it spends credits, so it is a
+// separate, differently styled button that always asks first. Nothing runs it automatically.
+function discoverBar(c){
+  const w=S.working&&S.working.id===c.id?S.working.kind:null;
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <button class="btn" data-act="discover" data-id="${c.id}" ${S.working?'disabled':''}>${ic('search',14)} ${w==='discover'?'Discovering…':'Discover prospects'}</button>
+    <button class="btn warn" data-act="dq-open" data-id="${c.id}" ${S.working?'disabled':''}>${w==='dq'?'Discovering and qualifying…':'Discover &amp; qualify'}</button>
+    <span class="mute" style="font-size:11.5px">Discover searches the web and adds prospects (no agent credits). Discover &amp; qualify also runs the real DronaHQ agents and spends credits.</span></div>`;
 }
 function funnelChart(f){
   const max=Math.max(...f,1);
@@ -875,18 +892,23 @@ function analyticsForCamp(c){
 
 /* ================= INTEGRATIONS ================= */
 function integrationsPage(){
+  // Gmail, Groq and Tavily are connected only if the backend says so (keys present; Gmail also needs its login accepted).
+  const live=(S.health&&S.health.integrations)||{};
+  const on=k=>!!(live[k]&&live[k].connected);
   const items=[
-   ['DronaHQ Agentic Platform','All 7 agents — reasoning, RAG, guardrails, evals','connected'],
-   ['Supabase','Campaigns, prospects, activities, everything this app reads','connected'],
-   ['Web Search (via DronaHQ)','Live enrichment for the Research agent','connected'],
-   ['Gmail','Send and read email','planned'],
-   ['Twilio SMS &amp; Voice','SMS delivery and outbound calls','planned'],
-   ['LinkedIn automation','Connection requests and messages','planned'],
-   ['Apollo','Lead discovery and enrichment','planned'],
-   ['Google Calendar','Meeting booking','planned'],
+   ['DronaHQ Agentic Platform','All 7 agents — reasoning, RAG, guardrails, evals',true],
+   ['Supabase','Campaigns, prospects, activities, everything this app reads',true],
+   ['Web Search (via DronaHQ)','Live enrichment for the Research agent',true],
+   ['Gmail','Real email sending',on('gmail'),live.gmail&&live.gmail.detail],
+   ['Groq','Reasoning for prospect discovery',on('groq'),live.groq&&live.groq.detail],
+   ['Tavily','Search for prospect discovery',on('tavily'),live.tavily&&live.tavily.detail],
+   ['Twilio SMS &amp; Voice','SMS delivery and outbound calls',false],
+   ['LinkedIn automation','Connection requests and messages',false],
+   ['Apollo','Lead discovery and enrichment',false],
+   ['Google Calendar','Meeting booking',false],
   ];
   return shell(`<h1 class="page-t" style="margin-bottom:6px">Integrations</h1><p class="mute" style="margin-bottom:20px">Credentials live here once and are shared by every campaign.</p>
-  <div class="grid gauto">${items.map(([n,d,st])=>`<section class="card" style="padding:17px"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px"><b style="font-size:13px">${n}</b><span class="pill ${st==='connected'?'live':''}">${st==='connected'?'Connected':'Not connected'}</span></div><p class="mute" style="font-size:11.5px;margin-bottom:14px">${d}</p><button class="btn sm">Manage</button></section>`).join('')}</div>`);
+  <div class="grid gauto">${items.map(([n,d,ok,detail])=>`<section class="card" style="padding:17px"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px"><b style="font-size:13px">${n}</b><span class="pill ${ok?'live':''}" ${detail?`title="${esc(detail)}"`:''}>${ok?'Connected':'Not connected'}</span></div><p class="mute" style="font-size:11.5px;margin-bottom:14px">${d}</p><button class="btn sm">Manage</button></section>`).join('')}</div>`);
 }
 
 /* ================= KNOWLEDGE ================= */
@@ -922,6 +944,12 @@ function settingsPage(){
     <section class="card"><div class="card-h"><h3>Global pause (kill switch)</h3></div><div class="card-b">
       <p class="mute" style="font-size:12.5px;margin-bottom:12px">Stops every autonomous external action across the entire platform. Existing data is kept.</p>
       <button class="btn ${S.killed?'':'danger'}" data-act="kill">${S.killed?'Resume all campaigns':'Pause everything now'}</button></div></section>
+    <section class="card"><div class="card-h"><h3>Autonomous mode</h3><span class="pill ${S.auto?'live':''}">${S.auto?'On':'Off'}</span></div><div class="card-b">
+      <div class="row-sw" style="padding-top:0;border-bottom:0"><div style="max-width:540px"><b style="font-size:12.5px">Run each prospect's next step automatically</b>
+        <p class="mute" style="font-size:12px;margin-top:4px">When on, the system decides and runs each prospect's next step on its own instead of waiting for a manual trigger.</p></div>
+        <button class="sw" role="switch" aria-checked="${S.auto}" aria-label="Autonomous mode" data-act="auto-toggle" ${S.autoMissing?'disabled':''}></button></div>
+      ${S.autoMissing?`<p style="font-size:12px;color:var(--amber);margin-top:8px">Needs a one-time database update before it can be used: run db/schema.sql in the Supabase SQL editor (it is safe to re-run).</p>`:''}
+    </div></section>
     <section class="card"><div class="card-h"><h3>Channel pause</h3></div><div class="card-b">
       <p class="mute" style="font-size:12.5px;margin-bottom:6px">Pause one channel for every campaign at once. This sits on top of each campaign's own channel switches: a send goes out only if both allow it. On = running, off = paused.</p>
       ${S.gchanMissing?`<p style="font-size:12px;color:var(--amber);margin:8px 0">Needs a one-time database update before it can be used: run db/schema.sql in the Supabase SQL editor (it is safe to re-run).</p>`:''}
@@ -958,6 +986,18 @@ function modal(){
     <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn danger" data-act="kill-confirm">${S.killed?'Resume everything':'Stop everything'}</button></div></div></div>`;
   if(m.t==='pause') return `<div class="overlay"><div class="modal"><h2>Pause ${esc(camp(m.id)?.name)}?</h2><p class="mute" style="font-size:13px">Autonomous execution stops immediately. Other campaigns are unaffected. Prospect data is kept.</p>
     <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn danger" data-act="pause-confirm" data-id="${m.id}">Pause campaign</button></div></div></div>`;
+  if(m.t==='dq') return `<div class="overlay"><div class="modal"><h2>Discover &amp; qualify?</h2>
+    <p style="font-size:13px;margin-bottom:10px"><b>This will call the real DronaHQ agents and spend credits.</b></p>
+    <p class="mute" style="font-size:13px">It finds new prospects for <b>${esc(camp(m.id)?.name||'this campaign')}</b>, then runs the Research agent and the ICP agent on each one, so up to 5 prospects means up to 10 agent runs. It never contacts anyone. Use <b>Discover prospects</b> instead if you only want to add prospects without spending credits.</p>
+    <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn warn" data-act="dq-confirm" data-id="${m.id}">Yes, spend credits</button></div></div></div>`;
+  if(m.t==='dqres'){const r=m.res,sm=r.summary;
+    return `<div class="overlay"><div class="modal"><h2>Discover &amp; qualify: done</h2>
+    <p class="mute" style="font-size:13px">${sm.discovered} new prospect${sm.discovered===1?'':'s'}: ${sm.qualified} qualified, ${sm.rejected} rejected${sm.failed?`, ${sm.failed} failed`:''}${sm.blocked?`, ${sm.blocked} blocked`:''}${sm.skipped?`, ${sm.skipped} skipped`:''}.${sm.stopped_reason?` Stopped: ${esc(String(sm.stopped_reason).replace(/_/g,' '))}.`:''}</p>
+    ${r.results.length?`<div class="stoplist">${r.results.map(x=>`<div><span>${esc(x.name)} <span class="mute">· ${esc(x.company||'')}</span></span><span class="${x.status==='failed'||x.status==='blocked'?'':'mute'}">${esc(x.status)}${x.icp_score!=null?` (${x.icp_score})`:''}${x.error?`: ${esc(String(x.error).slice(0,60))}`:x.reason?`: ${esc(String(x.reason).replace(/_/g,' '))}`:''}</span></div>`).join('')}</div>`:''}
+    <div class="modal-f"><button class="btn primary" data-act="close-modal">Close</button></div></div></div>`;}
+  if(m.t==='auto-on') return `<div class="overlay"><div class="modal"><h2>Turn on autonomous mode?</h2>
+    <p class="mute" style="font-size:13px">The system will decide and run each prospect's next step on its own, including real DronaHQ agent runs that spend credits and email dispatches (redirected to the test inbox). Nothing runs until something calls <b>POST /run-cycle</b>; this only allows it. You can turn it off again at any time.</p>
+    <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn warn" data-act="auto-confirm">Turn on</button></div></div></div>`;
   if(m.t==='offboard'){
     const im=m.impact,n=im.campaigns.length,orphan=im.campaigns.filter(c=>c.left_without_rep).length;
     return `<div class="overlay"><div class="modal"><h2>Offboard ${esc(im.rep.name)}?</h2>
@@ -1064,6 +1104,35 @@ document.addEventListener('click',e=>{
   const a=d.act;
   if(a==='theme'){const cur=document.documentElement.dataset.theme||'dark';const next=cur==='dark'?'light':'dark';document.documentElement.dataset.theme=next;try{localStorage.setItem('sdr-theme',next)}catch(_){}return render()}
   if(a==='retry')return boot();
+  if(a==='discover')return act(async()=>{
+    S.working={id:d.id,kind:'discover'};render();
+    try{
+      const r=await api('POST',`/campaigns/${d.id}/discover`,{});
+      await loadCampData(d.id);rebuildAll();
+      const n=r.created.length,sk=r.skipped.length;
+      toast(n?`Discovered ${n} new prospect${n===1?'':'s'}${sk?` (${sk} skipped as duplicates)`:''}`:(r.found?'Nothing new: everyone found was already here':'No suitable prospects found this time'));
+    }finally{S.working=null;render()}
+  });
+  if(a==='dq-open'){S.modal={t:'dq',id:d.id};return render()}
+  if(a==='dq-confirm')return act(async()=>{
+    S.modal=null;S.working={id:d.id,kind:'dq'};render();
+    try{
+      // The only place discover-and-qualify is ever called: an explicit click, after the confirmation dialog.
+      const r=await api('POST',`/campaigns/${d.id}/discover-and-qualify`,{confirm_spend:true});
+      await Promise.all([loadCampData(d.id),loadApprovals(),loadSpend()]);rebuildAll();
+      S.working=null;S.modal={t:'dqres',res:r};render();
+    }finally{if(S.working){S.working=null;render()}}
+  });
+  if(a==='auto-toggle'){
+    if(S.autoMissing)return;
+    if(!S.auto){S.modal={t:'auto-on'};return render()}   // turning ON always asks first
+    return act(async()=>{S.auto=!!(await api('PATCH','/global-settings/autonomous-mode',{autonomous_mode:false})).autonomous_mode;toast('Autonomous mode is off');render()});
+  }
+  if(a==='auto-confirm')return act(async()=>{
+    S.modal=null;
+    S.auto=!!(await api('PATCH','/global-settings/autonomous-mode',{autonomous_mode:true,confirm:true})).autonomous_mode;
+    toast('Autonomous mode is on');render();
+  });
   if(a==='collapse'){S.collapsed=!S.collapsed;try{localStorage.setItem('sdr-collapsed',S.collapsed?'1':'0')}catch(_){}return render()}
   if(a==='kill'){S.modal={t:'kill'};return render()}
   if(a==='kill-confirm')return act(async()=>{
