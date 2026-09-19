@@ -132,20 +132,62 @@ function parseFields(raw, labels, agentName, { keepFormatting = [] } = {}) {
   return out;
 }
 
+// Creates a 'scheduled' meeting (time to be set) for this campaign prospect, unless one is already pending.
+// Returns the meeting id and pushes a note about what happened onto `notes` (stored with the step's activity).
+async function ensureMeeting(cp, notes) {
+  const pending = unwrap(
+    await supabase
+      .from('meetings')
+      .select('id')
+      .eq('campaign_id', cp.campaign_id)
+      .eq('prospect_id', cp.prospect_id)
+      .eq('status', 'scheduled')
+      .limit(1)
+  );
+  if (pending.length) {
+    notes.push(`Meeting already pending (${pending[0].id}); no new meeting created.`);
+    return pending[0].id;
+  }
+  const meeting = unwrap(
+    await supabase
+      .from('meetings')
+      .insert({ campaign_id: cp.campaign_id, prospect_id: cp.prospect_id, scheduled_at: null, status: 'scheduled' })
+      .select('id')
+      .single()
+  );
+  notes.push(`Meeting created: ${meeting.id} (status scheduled, time to be set).`);
+  return meeting.id;
+}
+
 // Shared pipeline for single-{prompt} agent steps:
-//   load -> pre-send gate -> precheck -> build prompt -> call agent -> parse -> apply writes -> log activity.
+//   load -> pre-send gate -> precheck -> conflict check -> build prompt -> call agent -> parse -> apply writes
+//   -> log activity -> afterSuccess.
 // Agent-call and parse failures are logged as 'failed' activities and rethrown; nothing is written to the prospect.
-// step: { agentType, actionType, precheck?(cp), buildPrompt(cp), parse(raw, cp), apply(cp, parsed, notes) -> updated row }
+// step: { agentType, actionType, channel?(cp), precheck?(cp), conflictCheck?(cp) -> { allowed, reason, details },
+//         buildPrompt(cp), parse(raw, cp), apply(cp, parsed, notes) -> updated row, afterSuccess?(cp, parsed) }
 // parse() may also validate against the campaign (cp.campaign); throwing there is logged like any parse failure.
-// Returns { blocked: true, reason } if the gate stops the run, otherwise { blocked: false, campaignProspect }.
+// conflictCheck() runs before the agent is called; a deny is logged as a 'failed' activity and the agent is never called.
+// Returns { blocked: true, reason }      if the gate stops the run (kill switch / campaign not live),
+//         { denied: true, reason, details } if the conflict check says no,
+//         otherwise { blocked: false, campaignProspect }.
 async function runAgentStep(campaignProspectId, step) {
   const { agentType, actionType } = step;
   const cp = await loadCampaignProspect(campaignProspectId);
+  const channel = step.channel ? step.channel(cp) : null;
 
   const reason = await preSendGate(cp.campaign);
   if (reason) return { blocked: true, reason };
 
   if (step.precheck) step.precheck(cp);
+
+  if (step.conflictCheck) {
+    const verdict = await step.conflictCheck(cp);
+    if (!verdict.allowed) {
+      // Every deny is recorded; if the log write fails the call errors rather than skipping silently.
+      await logActivity(cp, agentType, actionType, `${actionType} requested`, `Blocked: ${verdict.reason}${verdict.details ? ` (${verdict.details})` : ''}`, 'failed', channel, { responded: false });
+      return { denied: true, reason: verdict.reason, details: verdict.details };
+    }
+  }
 
   const prompt = await step.buildPrompt(cp);
   let raw;
@@ -169,8 +211,19 @@ async function runAgentStep(campaignProspectId, step) {
   // with this step's activity instead of creating a separate activity.
   const notes = [];
   const updated = await step.apply(cp, parsed, notes);
-  await logActivity(cp, agentType, actionType, prompt, notes.length ? `${raw}\n\n${notes.join('\n')}` : raw, 'success');
+  await logActivity(cp, agentType, actionType, prompt, notes.length ? `${raw}\n\n${notes.join('\n')}` : raw, 'success', channel);
+  if (step.afterSuccess) await step.afterSuccess(cp, parsed);
   return { blocked: false, campaignProspect: updated };
 }
 
-module.exports = { loadCampaignProspect, logActivity, logFailedActivity, mergeContext, parseFields, runAgentStep, estimateUsage, RATES };
+module.exports = {
+  loadCampaignProspect,
+  logActivity,
+  logFailedActivity,
+  mergeContext,
+  ensureMeeting,
+  parseFields,
+  runAgentStep,
+  estimateUsage,
+  RATES,
+};

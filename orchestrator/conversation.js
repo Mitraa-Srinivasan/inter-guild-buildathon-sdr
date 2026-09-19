@@ -1,6 +1,6 @@
 const { supabase, unwrap } = require('../db/supabase');
 const { HttpError } = require('../lib/http');
-const { runAgentStep, parseFields, mergeContext } = require('./common');
+const { runAgentStep, parseFields, mergeContext, ensureMeeting } = require('./common');
 
 const present = (v) => v !== undefined && v !== null && v !== '';
 
@@ -64,31 +64,7 @@ function runConversation(campaignProspectId, replyText) {
         columns.funnel_state = 'engaged';
         // A positive reply that asks to book a meeting creates a meeting to be scheduled. One pending meeting per
         // campaign prospect: a second positive reply doesn't create a duplicate.
-        if (BOOK_MEETING_RE.test(f['Next Action'])) {
-          const pending = unwrap(
-            await supabase
-              .from('meetings')
-              .select('id')
-              .eq('campaign_id', cp.campaign_id)
-              .eq('prospect_id', cp.prospect_id)
-              .eq('status', 'scheduled')
-              .limit(1)
-          );
-          if (pending.length) {
-            record.meeting_id = pending[0].id;
-            notes.push(`Meeting already pending (${pending[0].id}); no new meeting created.`);
-          } else {
-            const meeting = unwrap(
-              await supabase
-                .from('meetings')
-                .insert({ campaign_id: cp.campaign_id, prospect_id: cp.prospect_id, scheduled_at: null, status: 'scheduled' })
-                .select('id')
-                .single()
-            );
-            record.meeting_id = meeting.id;
-            notes.push(`Meeting created: ${meeting.id} (status scheduled, time to be set).`);
-          }
-        }
+        if (BOOK_MEETING_RE.test(f['Next Action'])) record.meeting_id = await ensureMeeting(cp, notes);
       }
 
       return mergeContext(cp, { last_conversation: record }, columns);

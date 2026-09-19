@@ -106,11 +106,13 @@ router.post('/:id/run-followup', async (req, res) => {
   }
 });
 
-// Orchestrator step: run a voice call. Requires the phone channel to be enabled for the campaign (400 otherwise).
+// Orchestrator step: run a voice call. Requires the voice or phone channel to be enabled for the campaign (400 otherwise).
+// 423 = pre-send gate. 409 { blocked, reason, details } = conflict gate (same as dispatch); the agent is not called.
 router.post('/:id/run-voice', async (req, res) => {
   try {
     const result = await runVoice(req.params.id);
     if (result.blocked) return res.status(423).json({ blocked: true, reason: result.reason });
+    if (result.denied) return res.status(409).json({ blocked: true, reason: result.reason, details: result.details });
     res.json(result.campaignProspect);
   } catch (err) {
     handleError(res, err);
