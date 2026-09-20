@@ -10,6 +10,7 @@ const { runConversation } = require('../orchestrator/conversation');
 const { runFollowup } = require('../orchestrator/followup');
 const { runVoice } = require('../orchestrator/voice');
 const { runDispatch } = require('../orchestrator/dispatch');
+const { runQualifyAndDraft, planQualifyAndDraft } = require('../orchestrator/qualifyAndDraft');
 
 const FIELDS = [
   'campaign_id',
@@ -75,6 +76,37 @@ router.post('/:id/run-strategy', async (req, res) => {
     if (result.blocked) return res.status(423).json({ blocked: true, reason: result.reason });
     res.json(result.campaignProspect);
   } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// What Qualify & draft would run for this prospect right now (read-only: calls no agent). Used for the confirmation dialog.
+router.get('/:id/qualify-and-draft', async (req, res) => {
+  try {
+    res.json(await planQualifyAndDraft(req.params.id));
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Research -> ICP -> strategy -> personalisation for one prospect, running ONLY the steps it does not already have (each spends
+// DronaHQ credits). Each step that runs logs its own activity, as the individual run-* endpoints do. Responds with everything the
+// prospect has afterwards: { steps_run, steps_skipped, stopped, research, icp, strategy, email, ... }.
+// 423 = pre-send gate (kill switch / campaign not live / agent paused). 409 = conflict gate (suppressed, approval pending or
+// rejected, active in another campaign) or a run already in progress. Both, and a failed step, include the steps completed so far.
+// A prospect ICP rejects (or that was already rejected) stops there with 200 and stopped: 'rejected'.
+router.post('/:id/qualify-and-draft', async (req, res) => {
+  try {
+    const result = await runQualifyAndDraft(req.params.id);
+    if (result.blocked) return res.status(423).json(result);
+    if (result.denied) return res.status(409).json({ ...result, blocked: true }); // same { blocked, reason, details } as dispatch
+    res.json(result);
+  } catch (err) {
+    if (err.partial) {
+      const status = err.status || 500;
+      if (!err.status) console.error(err);
+      return res.status(status).json({ error: err.status ? err.message : 'Internal server error', ...err.partial });
+    }
     handleError(res, err);
   }
 });
