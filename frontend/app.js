@@ -971,15 +971,16 @@ setInterval(async()=>{
   await Promise.all([loadHealth(),loadSpend()]);
   if(JSON.stringify([S.health,S.spend])!==before)render();
 },30000);
-// Live feed: quietly re-poll the overview and the open campaign every 15s and redraw only if something changed.
+// Live feed: quietly re-poll the overview, the Prospects page and the open campaign every 15s and redraw only if something changed.
 const sig=()=>S.killed+'|'+TASKS.length+'|'+Object.values(S.acts).map(a=>a[0]?.id).join()+'|'+Object.values(S.cps).map(a=>a.map(c=>c.updated_at).join()).join();
 setInterval(async()=>{
   if(document.hidden||!S.ready||S.busy)return;
   const onCamp=S.page==='campaigns'&&S.campId&&['Overview','Prospects','Activity'].includes(S.campTab);
-  if(S.page!=='overview'&&!onCamp)return;
+  const wholeList=S.page==='overview'||S.page==='prospects'; // both show every campaign's prospects
+  if(!wholeList&&!onCamp)return;
   const before=sig(),page=S.page;
   try{
-    if(page==='overview')await Promise.all([loadKill(),loadApprovals(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
+    if(wholeList)await Promise.all([loadKill(),loadApprovals(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
     else await Promise.all([loadKill(),loadCampData(S.campId)]);
     if(S.page!==page||sig()===before)return;
     rebuildAll();render();
