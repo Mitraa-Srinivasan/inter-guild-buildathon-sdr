@@ -356,7 +356,6 @@ function topbar(){
   const h=S.health;
   const sysCls=!h?'warn':h.ok?'':'bad',sysTxt=!h?'Checking…':h.ok?'System operational':'System degraded';
   return `<div class="top">
-    <div class="search">${ic('search',15)}<input placeholder="Search campaigns, prospects…" id="gsearch"><kbd>⌘K</kbd></div>
     <div class="grow"></div>
     <span class="ind ${sysCls}"><span class="dot"></span>${sysTxt}</span>
     <span class="ind ${S.killed?'bad':''}"><span class="dot"></span>${S.killed?'AI paused':'AI working'}</span>
@@ -987,10 +986,6 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('change',e=>{
   if(e.target.dataset.act==='psel'){S.promptSel=e.target.value;S.promptView=null;render();refreshCamp(S.campId,'Prompts')}
-});
-// ⌘K / Ctrl+K focuses the search box.
-document.addEventListener('keydown',e=>{
-  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('gsearch')?.focus()}
 });
 // Sidebar health and spend refresh every 30s, redrawing only if they changed.
 setInterval(async()=>{

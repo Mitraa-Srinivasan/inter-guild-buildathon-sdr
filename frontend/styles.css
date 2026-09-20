@@ -92,9 +92,6 @@ svg [fill]:not([fill="none"]){stroke:none}
 .top{display:flex;align-items:center;gap:14px;padding:14px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;
   padding-top:calc(14px + env(safe-area-inset-top,0px))}
 .top .grow{flex:1}
-.search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:7px 12px;width:310px;color:var(--mute);background:var(--bg-elev)}
-.search input{border:0;background:none;outline:0;flex:1;color:var(--ink);min-width:0;font-size:13px}
-.search kbd{font:inherit;font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:5px;padding:1px 6px;background:var(--bg-elev2);flex:none}
 .ind{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:var(--ink2);white-space:nowrap}
 .ind .dot{color:var(--accent)} .ind.warn .dot{color:var(--amber)} .ind.bad .dot{color:var(--red)}
 @media (max-width:1100px){.ind{display:none}}
