@@ -80,7 +80,9 @@ const S={page:'overview',theme:null,campId:null,campTab:'Overview',campFilter:'a
 try{S.collapsed=localStorage.getItem('sdr-collapsed')==='1'}catch(_){}
 const camp=id=>CAMPAIGNS.find(c=>c.id===id);
 const pro=id=>PROS.find(p=>p.id===id);
-const agent=id=>AGENTS.find(a=>a.id===id);
+// Discovery is deliberately NOT in AGENTS: those are the 7 DronaHQ agents. It runs on Groq + Tavily and has its own card.
+const DISCOVERY={id:'discovery',name:'Discovery'};
+const agent=id=>AGENTS.find(a=>a.id===id)||(id==='discovery'?DISCOVERY:undefined);
 let toastTimer=null;
 function toast(m){
   document.querySelector('.toast')?.remove();
@@ -592,8 +594,34 @@ function conversationsPage(){
 }
 
 /* ================= AGENTS ================= */
+// Discovery is not one of the 7 DronaHQ agents: it searches the web (Tavily) and has an LLM (Groq) pick out named people. Its numbers
+// come from its real activity rows and from prospects whose source is 'discovery'; nothing here is a placeholder.
+function discoveryStats(){
+  const runs=CAMPAIGNS.flatMap(c=>(S.acts[c.id]||[]).filter(a=>a.agent_type==='discovery')).sort((x,y)=>new Date(y.created_at)-new Date(x.created_at));
+  const searches=runs.reduce((n,r)=>n+String(r.input_summary||'').split('\n').filter(l=>l.startsWith('- ')).length,0);
+  const found=CAMPAIGNS.reduce((n,c)=>n+(S.cps[c.id]||[]).filter(cp=>cp.prospect&&cp.prospect.source==='discovery').length,0);
+  const cost=runs.reduce((n,r)=>n+(Number(r.cost)||0),0);
+  return {runs,searches,found,cost,last:runs[0]||null};
+}
+function discoveryCard(){
+  const st=discoveryStats(),int=(S.health&&S.health.integrations)||{};
+  const configured=int.groq&&int.groq.connected&&int.tavily&&int.tavily.connected;
+  const pill=configured?'<span class="pill live"><span class="dot"></span>Ready</span>':'<span class="pill paused">Not configured</span>';
+  const lastLine=st.last?String(st.last.output_summary||'').split('\n').pop().slice(0,90):'';
+  const task=!configured?'Needs GROQ_API_KEY and TAVILY_API_KEY in .env'
+    :st.last?(st.last.status==='failed'?'Last run failed: '+esc(String(st.last.output_summary||'').split('\n')[0].slice(0,90)):'Last run '+esc(ago(st.last.created_at))+': '+esc(lastLine))
+    :'Ready. Not run yet: use "Discover prospects" on a campaign\'s Prospects tab';
+  const stat=(v,l)=>`<div><div class="serif" style="font-size:16px;font-weight:600">${v}</div><div class="mute" style="font-size:10.5px">${l}</div></div>`;
+  return `<section class="card" style="padding:17px;border-style:dashed" data-agent-card="discovery">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="display:flex;gap:10px;align-items:center"><div style="width:30px;height:30px;border-radius:9px;background:var(--bg-elev2);display:grid;place-items:center">${ic('search',15)}</div><b style="font-size:13.5px">Discovery</b></div>${pill}</div>
+    <p style="margin-bottom:8px"><span class="pill" style="border:1px solid var(--line2)">Runs on Groq + Tavily · not a DronaHQ agent</span></p>
+    <p class="mute" style="font-size:11.5px;margin-bottom:13px">${task}</p>
+    <div class="grid g3" style="gap:10px;margin-bottom:13px">${stat(st.searches,'Searches run')}${stat(st.found,'Prospects found')}${stat('$'+st.cost.toFixed(2),'Est. cost (all runs)')}</div>
+    <div style="display:flex;gap:7px"><button class="btn sm" style="flex:1" data-act="agent-logs" data-id="discovery">Logs</button><button class="btn sm" style="flex:1" data-nav="campaigns">Run from a campaign</button></div>
+  </section>`;
+}
 function agentsPage(){
-  return shell(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-t">Agents</h1><span class="mute" style="font-size:12px">Shared across all campaigns · configured in DronaHQ</span></div>
+  return shell(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-t">Agents</h1><span class="mute" style="font-size:12px">Shared across all campaigns · 7 agents configured in DronaHQ, plus Discovery on Groq + Tavily</span></div>
   <div class="grid gauto">${AGENTS.map(a=>`<section class="card" style="padding:17px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="display:flex;gap:10px;align-items:center"><div style="width:30px;height:30px;border-radius:9px;background:var(--bg-elev2);display:grid;place-items:center">${ic(a.icon,15)}</div><b style="font-size:13.5px">${a.name}</b></div><span class="pill live"><span class="dot pulse-true"></span>Live</span></div>
     <p class="mute" style="font-size:11.5px;margin-bottom:13px">${esc(a.task)}</p>
@@ -603,7 +631,7 @@ function agentsPage(){
       <div><div class="serif" style="font-size:16px;font-weight:600">${a.cost}</div><div class="mute" style="font-size:10.5px">Cost today (est.)</div></div>
     </div>
     <div style="display:flex;gap:7px"><button class="btn sm" style="flex:1" data-act="agent-logs" data-id="${a.id}">Logs</button><button class="btn sm" style="flex:1" data-nav="campaigns">Configure</button></div>
-  </section>`).join('')}</div>`);
+  </section>`).join('')}${discoveryCard()}</div>`);
 }
 
 /* ================= TASKS ================= */
