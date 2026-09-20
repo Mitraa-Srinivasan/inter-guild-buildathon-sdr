@@ -113,7 +113,7 @@ async function api(method,path,body){
     try{sessionStorage.setItem('sdr-notice','Your session has ended. Please sign in again.')}catch(_){}
     location.reload();
   }
-  if(!res.ok){const e=new Error((j&&(j.error||(j.blocked&&'Blocked: '+j.reason)))||`Request failed (${res.status})`);e.status=res.status;throw e}
+  if(!res.ok){const e=new Error((j&&(j.error||(j.blocked&&'Blocked: '+j.reason)))||`Request failed (${res.status})`);e.status=res.status;e.body=j;throw e}
   return j;
 }
 // List endpoints return at most 500 rows per request, so read them in pages.
@@ -541,7 +541,7 @@ function campTabBody(c,t){
   if(t==='Prompts') return promptsBody();
   if(t==='Conversations') return convList(CONVOS.filter(v=>v.camp===c.name));
   if(t==='Analytics') return analyticsForCamp(c);
-  if(t==='Configuration') return configBody(c);
+  if(t==='Configuration') return configBody(c)+dangerZone(c);
   if(t==='Knowledge') return `<section class="card"><div class="scroll"><table class="tbl"><thead><tr><th>Document</th><th>Type</th><th>Used by this campaign</th></tr></thead><tbody>
     ${KB.map(k=>`<tr><td><b>${esc(k.name)}</b></td><td class="mute">${k.type}</td><td>${k.used.includes(c.name)?`<span class="pill live">${ic('check',11)} In use</span>`:'<span class="mute">Not attached</span>'}</td></tr>`).join('')}
     </tbody></table></div></section>`;
@@ -567,6 +567,13 @@ function funnelChart(f){
 }
 // The backend accepts either "voice" or "phone" for the voice channel; use whichever the campaign already has.
 function chanKey(c,ch){const cc=c.channel_config||{};return ch==='voice'&&cc.voice===undefined&&cc.phone!==undefined?'phone':ch}
+function dangerZone(c){
+  return `<section class="card" style="margin-top:14px;border-color:var(--red)"><div class="card-h"><h3>Danger zone</h3></div>
+    <div class="card-b" style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="max-width:620px"><b style="font-size:13px">Delete this campaign</b>
+        <p class="mute" style="font-size:12px;margin-top:3px">Permanently removes the campaign with its prospect links, activity, prompt versions, rep assignments, approvals and meetings. The prospects themselves are kept. This cannot be undone.</p></div>
+      <button class="btn danger" data-act="del-open" data-id="${c.id}">Delete campaign…</button></div></section>`;
+}
 function configBody(c){
   return `<div class="grid g2"><div>
     <section class="card" style="margin-bottom:14px"><div class="card-h"><h3>Targeting</h3></div><div class="card-b">
@@ -618,6 +625,24 @@ function prosTable(list,inCamp){
   </tbody></table></div></section>`;
 }
 function prospectsPage(){return shell(`<h1 class="page-t" style="margin-bottom:18px">Prospects</h1>${prosTable(PROS,false)}`)}
+// The four steps of Qualify & draft, and whether this prospect already has each (mirrors orchestrator/qualifyAndDraft.js; the
+// confirmation dialog asks the backend for the authoritative plan, this only draws the checklist).
+function qdSteps(p){
+  const x=p.raw,ctx=x.context_json||{};
+  return [['Research',!!ctx.research],['ICP scoring',x.icp_score!=null],['Strategy',!!ctx.strategy],['Personalisation',!!(ctx.email_subject&&ctx.email_body)]];
+}
+function qdCard(p){
+  const steps=qdSteps(p),working=S.working&&S.working.id===p.id&&S.working.kind==='qd';
+  const before=['discovered','researched','qualified'].includes(p.stage);
+  const note=p.stage==='rejected'?'Rejected by ICP scoring, so nothing more will be run.'
+    :!before?'Already in outreach; this is for prospects before outreach starts.'
+    :steps.every(s=>s[1])?'Everything is already done for this prospect.'
+    :'Runs only the steps still missing. It calls real DronaHQ agents and spends credits, and never contacts the prospect.';
+  return `<section class="card"><div class="card-h"><h3>Outreach preparation</h3><span class="mute" style="font-size:11px">Research → ICP → Strategy → Email</span></div><div class="card-b">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${steps.map(([l,d])=>`<span class="pill ${d?'done':''}">${d?'✓ ':''}${l}</span>`).join('')}</div>
+    <button class="btn warn" data-act="qd-open" data-id="${p.id}" ${S.working||!before||p.stage==='rejected'||steps.every(s=>s[1])?'disabled':''}>${working?'Working…':'Qualify &amp; draft outreach'}</button>
+    <p class="mute" style="font-size:11.5px;margin-top:10px">${note}</p></div></section>`;
+}
 function prospectDetail(){
   const p=pro(S.pid); if(!p) return prospectsPage();
   const c=camp(p.camp);
@@ -629,9 +654,14 @@ function prospectDetail(){
   </div>
   <div class="grid g2">
     <div style="display:flex;flex-direction:column;gap:14px">
+      ${qdCard(p)}
       <section class="card"><div class="card-h"><h3>Research summary</h3><span class="mute" style="font-size:11px">Research &amp; Enrichment agent</span></div>
         <div class="card-b">${p.raw.context_json?.research?`<div style="font-size:12.5px;white-space:pre-wrap">${esc(String(p.raw.context_json.research).trim())}</div>`:`<div class="mute" style="font-size:12.5px">${esc(p.co)} has not been researched yet.</div>`}</div></section>
       <section class="card"><div class="card-h"><h3>ICP reasoning</h3></div><div class="card-b ${p.raw.icp_reasoning?'':'mute'}" style="font-size:12.5px;white-space:pre-wrap">${esc(p.raw.icp_reasoning||'Not scored yet.')}</div></section>
+      ${(()=>{const ctx=p.raw.context_json||{},st=ctx.strategy;return `<section class="card"><div class="card-h"><h3>Outreach strategy</h3><span class="mute" style="font-size:11px">Outreach Strategy agent</span></div>
+        <div class="card-b">${st?`<dl class="kv"><dt>Next channel</dt><dd>${esc(st.next_channel)}</dd><dt>Contact now</dt><dd>${esc(st.contact_now)}</dd><dt>Timing</dt><dd>${esc(st.timing)}</dd><dt>Reasoning</dt><dd>${esc(st.reasoning)}</dd></dl>`:'<div class="mute" style="font-size:12.5px">No strategy decided yet.</div>'}</div></section>
+      <section class="card"><div class="card-h"><h3>Drafted email</h3><span class="mute" style="font-size:11px">Personalisation agent</span></div>
+        <div class="card-b">${ctx.email_subject&&ctx.email_body?`<div style="font-size:12.5px"><b>${esc(ctx.email_subject)}</b><div style="white-space:pre-wrap;margin-top:8px">${esc(ctx.email_body)}</div>${ctx.email_snippets_used?`<div class="mute" style="font-size:11px;margin-top:10px">Snippets used: ${esc(ctx.email_snippets_used)}</div>`:''}</div>`:'<div class="mute" style="font-size:12.5px">No email drafted yet.</div>'}</div></section>`})()}
     </div>
     <section class="card"><div class="card-h"><h3>Conversation timeline</h3><span class="mute" style="font-size:11px">One thread across channels</span></div>
       <div class="card-b">${CONVOS.filter(v=>v.cp===p.id).map(v=>`<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${chName(v.ch)}</b><span class="mute" style="font-size:11px">${v.time}</span></div><p style="font-size:12.5px;margin-top:3px">${esc(v.msg)}</p></div>`).join('')||'<div class="empty" style="padding:16px 0">No replies yet.</div>'}</div></section>
@@ -863,6 +893,38 @@ function modal(){
     <p style="font-size:13px;margin-bottom:10px"><b>This will call the real DronaHQ agents and spend credits.</b></p>
     <p class="mute" style="font-size:13px">It finds new prospects for <b>${esc(camp(m.id)?.name||'this campaign')}</b>, then runs the Research agent and the ICP agent on each one, so up to 5 prospects means up to 10 agent runs. It never contacts anyone. Use <b>Discover prospects</b> instead if you only want to add prospects without spending credits.</p>
     <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn warn" data-act="dq-confirm" data-id="${m.id}">Yes, spend credits</button></div></div></div>`;
+  if(m.t==='qd'){
+    const names=l=>l.map(s=>s.label).join(', ');
+    const sure=m.plan.steps.filter(s=>!s.conditional),maybe=m.plan.steps.filter(s=>s.conditional);
+    const already=m.plan.done.map(k=>({research:'Research',icp:'ICP scoring',strategy:'Strategy',personalisation:'Personalisation'}[k])).join(', ');
+    return `<div class="overlay"><div class="modal"><h2>Qualify &amp; draft outreach?</h2>
+    <p style="font-size:13px;margin-bottom:10px"><b>This will call real DronaHQ agents and spend credits.</b></p>
+    <p style="font-size:13px;margin-bottom:8px">This will run: <b>${esc(sure.length?names(sure):'nothing yet')}</b>${maybe.length?`. If the prospect qualifies, it will also run: <b>${esc(names(maybe))}</b>`:''}.</p>
+    ${already?`<p class="mute" style="font-size:13px;margin-bottom:8px">Already done, so not run again: ${esc(already)}.</p>`:''}
+    <p class="mute" style="font-size:13px">If ICP scoring rejects the prospect, it stops there. It prepares an email draft; it never sends anything.</p>
+    <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn warn" data-act="qd-confirm" data-id="${m.id}">Yes, spend credits</button></div></div></div>`;
+  }
+  if(m.t==='qdres'){
+    const r=m.out,label={research:'Research',icp:'ICP scoring',strategy:'Strategy',personalisation:'Personalisation'};
+    const list=a=>(a||[]).map(k=>label[k]||k).join(', ');
+    return `<div class="overlay"><div class="modal"><h2>${esc(r.head)}</h2>
+    <p class="mute" style="font-size:13px">${esc(r.text)}</p>
+    <div class="stoplist">
+      <div><span>Ran</span><span>${esc(list(r.steps_run)||'nothing')}</span></div>
+      ${r.steps_skipped&&r.steps_skipped.length?`<div><span>Already done, not run again</span><span class="mute">${esc(list(r.steps_skipped))}</span></div>`:''}
+      ${r.email?`<div><span>Email subject</span><span>${esc(r.email.subject)}</span></div>`:''}
+    </div>
+    <div class="modal-f"><button class="btn primary" data-act="close-modal">Close</button></div></div></div>`;
+  }
+  if(m.t==='del'){
+    const c=camp(m.id); if(!c) return '';
+    const ok=m.typed===m.name;
+    return `<div class="overlay"><div class="modal"><h2>Delete ${esc(m.name)}?</h2>
+    <p style="font-size:13px;margin-bottom:10px"><b>This is permanent and cannot be undone.</b></p>
+    <p class="mute" style="font-size:13px;margin-bottom:12px">This deletes the campaign and everything that belongs to it: its ${c.pros} prospect link${c.pros===1?'':'s'}, its activity log, prompt versions, rep assignments, approvals and meetings.${c.status==='live'?' The campaign is live, so it stops immediately.':''} The prospects themselves are not deleted.</p>
+    <div class="field"><label>Type <b>${esc(m.name)}</b> to confirm</label><input id="dn" autocomplete="off" spellcheck="false" value="${esc(m.typed||'')}"></div>
+    <div class="modal-f"><button class="btn" data-act="close-modal">Cancel</button><button class="btn danger" data-act="del-confirm" data-id="${m.id}" ${ok?'':'disabled'}>Delete this campaign</button></div></div></div>`;
+  }
   if(m.t==='dqres'){const r=m.res,sm=r.summary;
     return `<div class="overlay"><div class="modal"><h2>Discover &amp; qualify: done</h2>
     <p class="mute" style="font-size:13px">${sm.discovered} new prospect${sm.discovered===1?'':'s'}: ${sm.qualified} qualified, ${sm.rejected} rejected${sm.failed?`, ${sm.failed} failed`:''}${sm.blocked?`, ${sm.blocked} blocked`:''}${sm.skipped?`, ${sm.skipped} skipped`:''}.${sm.stopped_reason?` Stopped: ${esc(String(sm.stopped_reason).replace(/_/g,' '))}.`:''}</p>
@@ -952,6 +1014,22 @@ async function act(fn){
   // After a failure, redraw: an action may already have changed state (e.g. closed its dialog) before it threw, and the screen must match.
   try{await fn()}catch(e){toast(e.message||'Something went wrong');render()}finally{S.busy=false}
 }
+// Plain-language result of Qualify & draft, from the 200 body or from the error a stop/failure carries (err.body has the partial progress).
+const QD_WHY={kill_switch_on:'The global kill switch is on.',campaign_not_live:'The campaign is not live.',agent_paused:'An agent needed for the next step is paused for this campaign.',
+  suppressed:"This prospect's email is on the suppression list.",pending_approval:'A human approval is pending for this prospect (see Tasks), so it is on hold until someone decides.',
+  approval_rejected:'A reviewer rejected outreach to this prospect.',active_in_other_campaign:'This prospect is active in another live campaign.'};
+function qdOutcome(res,err){
+  const b=res||(err&&err.body)||{},base={steps_run:b.steps_run||[],steps_skipped:b.steps_skipped||[],email:b.email||null};
+  if(res){
+    if(res.stopped==='rejected')return {...base,head:'Rejected by ICP',text:`Score ${res.icp?res.icp.score:'?'}. It stopped there, so no strategy was decided and no email was drafted.`};
+    if(res.stopped==='not_qualified')return {...base,head:'Not qualified',text:'This prospect is not in a qualified state, so nothing was run.'};
+    if(!res.steps_run.length)return {...base,head:'Nothing to run',text:'Everything already exists for this prospect.'};
+    return {...base,head:'Outreach drafted',text:'The steps below were run and saved on the prospect. Nothing was sent.'};
+  }
+  const done=base.steps_run.length?' What finished before that is saved.':'';
+  if(b.blocked)return {...base,head:'Stopped',text:(QD_WHY[b.reason]||`Blocked: ${b.reason}.`)+done};
+  return {...base,head:'A step failed',text:`${b.failed_step?`The ${b.failed_step} step failed: `:''}${err?err.message:'Something went wrong'}.${done} Running it again only repeats the steps that are still missing.`};
+}
 async function setStatus(id,status,msg){setCampaign(await api('PATCH',`/campaigns/${id}/status`,{status}));toast(msg);render()}
 document.addEventListener('click',e=>{
   if(e.target.closest('a[href]'))return; // real links (e.g. a prospect's LinkedIn) must not also trigger the row they sit in
@@ -1009,6 +1087,40 @@ document.addEventListener('click',e=>{
     }finally{S.working=null;render()}
   });
   if(a==='dq-open'){S.modal={t:'dq',id:d.id};return render()}
+  // Qualify & draft can take minutes (up to four agent calls), so it does not hold act()'s shared lock: the kill switch stays usable
+  // while it runs, and the backend re-checks the gates before every step. S.working alone stops a second click.
+  if(a==='qd-open'){
+    if(S.working)return;
+    return (async()=>{
+      try{
+        const plan=await api('GET',`/campaign-prospects/${d.id}/qualify-and-draft`); // what THIS prospect still needs, from the backend
+        if(!plan.steps.length)return toast(plan.stopped==='rejected'?'Already rejected by ICP: nothing to run':plan.stopped?'Nothing to run for this prospect':'Everything is already done for this prospect');
+        S.modal={t:'qd',id:d.id,plan};render();
+      }catch(e){toast(e.message)}
+    })();
+  }
+  if(a==='qd-confirm'){
+    if(S.working)return;
+    const cpId=d.id,p=pro(cpId);
+    S.modal=null;S.working={id:cpId,kind:'qd'};render();
+    return (async()=>{
+      let res=null,err=null;
+      try{res=await api('POST',`/campaign-prospects/${cpId}/qualify-and-draft`,{})}catch(e){err=e}
+      // Whatever finished before a stop or failure is already saved, so reload either way.
+      try{if(p)await Promise.all([loadCampData(p.camp),loadApprovals(),loadSpend()]);rebuildAll()}catch(_){}
+      S.working=null;S.modal={t:'qdres',out:qdOutcome(res,err)};render();
+    })();
+  }
+  if(a==='del-open'){const c=camp(d.id);if(!c)return;S.modal={t:'del',id:c.id,name:c.name,typed:''};return render()}
+  if(a==='del-confirm')return act(async()=>{
+    const c=camp(d.id);
+    if(!c||!S.modal||S.modal.t!=='del'||S.modal.typed!==c.name)return; // the backend checks the name again; this only stops a stray click
+    const r=await api('DELETE',`/campaigns/${c.id}`,{confirm_name:S.modal.typed});
+    CAMPAIGNS=CAMPAIGNS.filter(x=>x.id!==c.id);delete S.cps[c.id];delete S.acts[c.id];delete S.costs[c.id];
+    S.modal=null;S.campId=null;S.page='campaigns';
+    try{await loadApprovals()}catch(_){}
+    rebuildAll();toast(`Deleted ${r.campaign.name}`);render();
+  });
   if(a==='dq-confirm')return act(async()=>{
     S.modal=null;S.working={id:d.id,kind:'dq'};render();
     try{
@@ -1093,6 +1205,13 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('submit',e=>{
   if(e.target.id==='login-form'){e.preventDefault();doLogin()}
+});
+// Delete dialog: the confirm button unlocks only when the typed text equals the campaign name exactly. Updated in place (no re-render,
+// so focus and caret stay put); the typed text lives in S.modal so a redraw keeps the button in step with the box.
+document.addEventListener('input',e=>{
+  if(e.target.id!=='dn'||!S.modal||S.modal.t!=='del')return;
+  S.modal.typed=e.target.value;
+  const b=document.querySelector('[data-act="del-confirm"]');if(b)b.disabled=S.modal.typed!==S.modal.name;
 });
 document.addEventListener('change',e=>{
   if(e.target.dataset.act==='psel'){S.promptSel=e.target.value;S.promptView=null;render();refreshCamp(S.campId,'Prompts')}
