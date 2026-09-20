@@ -1,6 +1,11 @@
 # inter-guild-buildathon-sdr
 
-Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-agent orchestrator steps (Phase 2).
+# SDR OS
+
+An autonomous, multi-channel Sales Development Representative system, built for the DronaHQ x Tech Contingent (IIT Madras) Inter Guild Buildathon. Seven agents — hosted and run on the DronaHQ Agentic Platform — research, qualify, personalise, and follow up with prospects across three independent campaigns, while a human manager stays in control through a purpose-built
+control plane: pause/resume, approve escalations, manage reps and suppression, and watch it happen in real time.
+
+This repository is the backend orchestrator, control-plane API, and frontend for that system.
 
 ## Setup
 
