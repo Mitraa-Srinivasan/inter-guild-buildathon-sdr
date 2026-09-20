@@ -135,6 +135,36 @@ router.post('/:id/discover-and-qualify', async (req, res) => {
   }
 });
 
+// Everything that hangs off a campaign through campaign_id. db/schema.sql declares all of them ON DELETE CASCADE, so deleting the
+// campaign row removes them in the same statement (all or nothing). Listed here only to report what was removed.
+const CAMPAIGN_CHILD_TABLES = ['campaign_prospects', 'activities', 'prompt_versions', 'campaign_reps', 'approvals', 'meetings'];
+
+// Permanently delete a campaign and its own data: its prospect links, activities, prompt versions, rep assignments, approvals and
+// meetings. The prospects themselves are NOT deleted (a prospect can be in other campaigns); only this campaign's link to them goes.
+// Body: { confirm_name } must equal the campaign's name exactly, or 400 and nothing is touched. No agent is ever called.
+router.delete('/:id', async (req, res) => {
+  try {
+    const campaign = unwrap(await supabase.from('campaigns').select('id, name').eq('id', req.params.id).maybeSingle());
+    if (!campaign) throw notFound('Campaign');
+    const confirm = req.body && req.body.confirm_name;
+    if (typeof confirm !== 'string' || confirm !== campaign.name) {
+      throw new HttpError(400, 'confirm_name must match the campaign name exactly. Nothing was deleted.');
+    }
+    const removed = {};
+    for (const table of CAMPAIGN_CHILD_TABLES) {
+      const { count, error } = await supabase.from(table).select('campaign_id', { count: 'exact', head: true }).eq('campaign_id', campaign.id); // campaign_reps has no id column
+      if (error) throw error;
+      removed[table] = count || 0;
+    }
+    unwrap(await supabase.from('campaigns').delete().eq('id', campaign.id));
+    const by = req.auth && req.auth.user ? req.auth.user.email : 'unknown';
+    console.log(`Campaign deleted: "${campaign.name}" (${campaign.id}) by ${by}; removed ${JSON.stringify(removed)}`);
+    res.json({ deleted: true, campaign: { id: campaign.id, name: campaign.name }, removed });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // Change only the campaign's lifecycle status (Launch / Pause / Resume in the UI). Body: { status }.
 router.patch('/:id/status', async (req, res) => {
   try {
