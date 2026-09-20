@@ -4,6 +4,13 @@ const { requireAuth } = require('./lib/auth');
 
 const app = express();
 app.disable('x-powered-by');
+// Behind a hosting platform's reverse proxy every request arrives from the proxy's address, so req.ip (which the login throttle keys on)
+// would be the same for everybody. Set TRUST_PROXY to the number of proxies in front (usually 1) so req.ip is the real client. Off by
+// default: trusting it when the server is exposed directly would let a client spoof its address with a header.
+if (process.env.TRUST_PROXY) {
+  const v = process.env.TRUST_PROXY.trim();
+  app.set('trust proxy', /^\d+$/.test(v) ? Number(v) : v === 'true' ? true : v);
+}
 
 // ---- reachable without a session --------------------------------------------------------------------------------------
 // Bare liveness for uptime monitors: returns { ok: true } and nothing else.

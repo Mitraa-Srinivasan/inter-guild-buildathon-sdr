@@ -9,11 +9,37 @@ Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-
 3. `npm install`
 4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" and "Voice AI Founders" (idempotent; re-running also adds missing rep links).
 5. **Create the team logins:** copy `db/team.example.json` to `db/team.json` (git-ignored) and list your team, then `npm run seed:users`. It prints each new account's random password once; nothing is stored. Run it again after `db/schema.sql` has created the `profiles` table so it also fills that (see Login below).
-6. `npm start` (or `npm run dev`), default port 3000, then sign in at http://localhost:3000/.
+6. `npm start` (or `npm run dev`), default port 3000 (or `PORT`), then open the server's address (locally http://localhost:3000/) and sign in.
 7. Optional: `npm run seed:demo` builds the demo pipeline by running fictional prospects through the **real** agents (about 40 DronaHQ calls, several minutes; nothing is sent anywhere). Per campaign, the sample profile is the "hero" taken through research, ICP, strategy, personalisation, dispatch, a positive reply and a follow-up, plus three more at other depths: one that stops after ICP, one dispatched with no reply (`contacted`), and one whose reply needs a human (a pending `reply_escalation` approval). It is resumable and skips any step already done, and it switches paused campaigns to live for the run and puts them back afterwards. The kill switch must be off.
 
-Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
-`ICP`, `RESEARCH`, `PERSONALIZE`, `STRATEGY`, `CONVERSATION`, `FOLLOWUP`, `VOICE`.
+The full list of environment variables is in [.env.example](.env.example) and in Deployment below.
+
+## Deployment
+
+One Node process serves both the API and the UI (static files from `frontend/`, same origin, so there is no CORS and no separate front-end host). Nothing in the code assumes `localhost`: the server listens on `process.env.PORT` on all interfaces, the UI calls the API with relative URLs, and every external address (Supabase, DronaHQ, Groq, Tavily, Gmail) is configuration.
+
+- **Runtime:** Node 18 or newer.
+- **Build command:** `npm install` (use `npm ci` if the host prefers it). There is no build step: no bundler, no transpiling.
+- **Start command:** `npm start` (which runs `node server.js`).
+- **Health check:** `GET /health` returns `{"ok":true}` without a session (the detailed `/health/services` needs a login).
+- **Before the first start:** run [db/schema.sql](db/schema.sql) in the Supabase SQL editor (safe to re-run), then create the team logins once with `npm run seed:users` **from your own machine** (it reads the git-ignored `db/team.json`; the accounts live in Supabase Auth, so the server needs neither the file nor that command). In the Supabase dashboard, use email/password sign-in and turn **off** public sign-ups (Authentication > Providers > Email > "Allow new users to sign up"); membership is enforced by the `profiles` table either way.
+- **HTTPS and proxies:** put it behind HTTPS (hosts do this for you). The session cookies get `Secure` when the request arrived over https (`X-Forwarded-Proto` is honoured). Set `TRUST_PROXY=1` when there is one reverse proxy in front, so the login throttle sees each visitor's own IP instead of the proxy's.
+- **Single instance:** the login throttle, the token cache and the per-prospect "already running" lock live in the process's memory, so run one instance (or accept that they are per instance).
+
+**Environment variables** (values go in the host's dashboard; locally in `.env`; never commit them):
+
+| Variable | Needed for | Notes |
+| --- | --- | --- |
+| `SUPABASE_URL` | **Required** | Project URL. The server exits at start without it. |
+| `SUPABASE_KEY` | **Required** | The **secret / service_role** key. Used for the database and for Supabase Auth (there is no separate anon key). Server-side only. |
+| `PORT` | Hosting | Set by most hosts; default 3000. |
+| `TRUST_PROXY` | Behind a proxy | Number of proxies in front (usually `1`). Unset = trust none. |
+| `DRONAHQ_ICP_WEBHOOK_URL` / `_KEY`, `DRONAHQ_RESEARCH_...`, `DRONAHQ_PERSONALIZE_...`, `DRONAHQ_STRATEGY_...`, `DRONAHQ_CONVERSATION_...`, `DRONAHQ_FOLLOWUP_...`, `DRONAHQ_VOICE_...` | The agent steps (`run-*`, qualify-and-draft, the cycle) | 7 URL + key pairs. Each call spends DronaHQ credits. Without a pair, that agent's endpoint answers 500 "must be set". |
+| `GROQ_API_KEY`, `TAVILY_API_KEY` | Discovery | Optional `GROQ_MODEL` (default `openai/gpt-oss-120b`). |
+| `EMAIL_USER`, `EMAIL_APP_PASSWORD` | Real email dispatch | Gmail address + Google app password. Without them email dispatch is simulated. |
+| `EMAIL_TEST_RECIPIENT` | Optional | Where redirected mail goes (default: `EMAIL_USER`). |
+| `AUDIT_BCC_EMAIL` | Optional | Blind-copy address for every real email. Unset = no copy. |
+| `SEED_PASSWORD_<NAME>` | `npm run seed:users` only | Optional per-user password; not needed on the server. |
 
 ## Layout
 

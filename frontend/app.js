@@ -149,7 +149,7 @@ const API=new URLSearchParams(location.search).get('api')||'';
 async function api(method,path,body){
   let res;
   try{res=await fetch(API+path,{method,headers:body!==undefined?{'Content-Type':'application/json'}:{},body:body!==undefined?JSON.stringify(body):undefined})}
-  catch(_){throw new Error(location.protocol==='file:'?'Open this page through the backend (npm start, then http://localhost:3000)':'Cannot reach the backend')}
+  catch(_){throw new Error(location.protocol==='file:'?'Open this page through the backend (start the server with npm start and use the address it serves), not as a file':'Cannot reach the backend')}
   let j=null;try{j=await res.json()}catch(_){}
   // A 401 anywhere else means the session has ended (expired, signed out elsewhere, or the server forgot it): back to the login page,
   // with a clean slate so no data from the old session stays in memory. (A wrong password on the login form is also a 401: not this.)
