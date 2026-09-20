@@ -1,27 +1,73 @@
-:root{
-  --bg:#0A0E14; --bg-elev:#10151F; --bg-elev2:#161C28; --line:#1E2531; --line2:#262E3C;
-  --ink:#F1F4F8; --ink2:#B8C0CC; --mute:#6B7787;
-  --accent:#22E6A6; --accent-ink:#07231A; --accent-dim:rgba(34,230,166,.13);
-  --blue:#3D6EF6; --blue-dim:rgba(61,110,246,.16);
-  --amber:#E8A33D; --amber-dim:rgba(232,163,61,.15);
-  --red:#F0554B; --red-dim:rgba(240,85,75,.15);
+/* Design tokens. Colours were measured from the product team's wireframe screenshots (pixel-sampled); the light theme keeps the app's
+   existing light option, tuned to the same roles. Everything below the tokens refers to these variables, never to raw colours. */
+:root,:root[data-theme="dark"]{
+  /* surfaces */
+  --bg:#080D12; --bg-elev:#060A0F; --bg-elev2:#0B1220; --line:#222E3B; --line2:#182130; --side-line:#30363D;
+  /* text */
+  --ink:#F8FAFC; --ink2:#C3CBD6; --mute:#6E7A8C;
+  /* accents and status colours */
+  --accent:#01DFAF; --accent-ink:#04231C; --accent-dim:rgba(1,223,175,.13);
+  --blue:#1D4ED8; --blue-dim:rgba(29,78,216,.2); --blue-text:#3B72F6;
+  --amber:#C9961A; --amber-dim:#382906;
+  --red:#E5484D; --red-dim:rgba(229,72,77,.15);
   --purple:#9B7DF0; --purple-dim:rgba(155,125,240,.15);
-  --serif:'Fraunces',Georgia,serif; --sans:'Inter',system-ui,-apple-system,sans-serif;
+  --emerald:#10B981; --emerald-dim:#064E3B; --emerald-ink:#A7F3D0;
+  color-scheme:dark;
+  /* type: one sans family everywhere (Inter); a bold serif only for the Overview greeting */
+  --serif:'Inter',system-ui,-apple-system,sans-serif; --sans:'Inter',system-ui,-apple-system,sans-serif; --display:'Noto Serif',Georgia,serif;
+  /* pills and tags */
+  --pill-bg:#20262E; --pill-fg:#9AA3AE;
+  --pill-slate-bg:#1E293B; --pill-slate-fg:#94A3B8;
+  --pill-green-bg:#0F2E1E; --pill-green-fg:#3FB26B;
+  --pill-red-bg:#351417; --pill-red-fg:#D0596A;
+  --pill-done-bg:#17303C; --pill-done-fg:#8DA0AB;
+  --pill-stream-bg:#0E2A30; --pill-stream-fg:#55C9BC; --pill-stream-dot:#22E07A;
+  --tag-red-bg:#36191E; --tag-red-fg:#E5484D; --tag-green-bg:#17452D; --tag-green-fg:#17DF0F;
+  /* overview KPI cards */
+  --kpi-bg:#0D1921; --kpi-border:#01DFAF; --kpi-glow:rgba(1,223,175,.22); --kpi-label:#C0CAD4;
+  /* sidebar */
+  --nav-active-bg:#3B3817; --nav-active-fg:#F3F1E2;
+  /* buttons and task cards */
+  --btn-bg:#0F172A; --btn-line:#283445; --btn-pill-line:#A9B1BD; --btn-neutral:#181D28;
+  --approve-bg:#17452D; --approve-line:#345C47; --reject-bg:#36191E; --reject-line:#952A2A;
+  --task-bg:#141822; --task-inner:#0B0E14;
+  /* misc */
+  --icon-cyan:#22C7E6; --tile-icon-bg:#142331; --dot-tint:rgba(1,223,175,.30);
+  --bar1-a:#105DEF; --bar1-b:#0A3A99; --bar2-a:#29498A; --bar2-b:#1A2E56; --bar3-a:#163564; --bar3-b:#0F2341;
 }
 @media (prefers-color-scheme: light){
   :root:not([data-theme="dark"]){
-    --bg:#F6F7F9; --bg-elev:#FFFFFF; --bg-elev2:#EEF1F5; --line:#E1E5EB; --line2:#EBEEF2;
-    --ink:#12161C; --ink2:#4B5566; --mute:#8A94A3;
-    --accent-ink:#07231A;
+    color-scheme:light;
+    --bg:#F3F5F8; --bg-elev:#FFFFFF; --bg-elev2:#F0F3F8; --line:#DDE3EB; --line2:#E9EDF3; --side-line:#DDE3EB;
+    --ink:#0F172A; --ink2:#475569; --mute:#8391A5;
+    --accent:#00A886; --accent-ink:#04231C; --accent-dim:rgba(0,168,134,.12); --blue-text:#1D4ED8;
+    --amber:#B7791F; --amber-dim:#FBF0D5; --red:#D23B43; --red-dim:rgba(210,59,67,.12);
+    --emerald:#10B981; --emerald-dim:#D5F5E8; --emerald-ink:#0B7A55;
+    --pill-bg:#E9EDF3; --pill-fg:#5B6778; --pill-slate-bg:#E8EDF4; --pill-slate-fg:#526078; --pill-green-bg:#DDF5E7; --pill-green-fg:#1A7F45;
+    --pill-red-bg:#FDE3E5; --pill-red-fg:#B4232F; --pill-done-bg:#E0EEF7; --pill-done-fg:#3B6E8F; --pill-stream-bg:#DAF3EF; --pill-stream-fg:#0B8F7E; --pill-stream-dot:#12B76A;
+    --tag-red-bg:#FDE3E5; --tag-red-fg:#C62F3A; --tag-green-bg:#DDF5E7; --tag-green-fg:#137A3A;
+    --kpi-bg:#F1FBF8; --kpi-border:#00B894; --kpi-glow:rgba(0,184,148,.16); --kpi-label:#526078;
+    --nav-active-bg:#EFEAC3; --nav-active-fg:#3A3610;
+    --btn-bg:#FFFFFF; --btn-line:#D5DCE6; --btn-pill-line:#B6BFCC; --btn-neutral:#EDF1F6;
+    --approve-bg:#DDF5E7; --approve-line:#9BD8B4; --reject-bg:#FDE3E5; --reject-line:#F0A5AB; --task-bg:#FFFFFF; --task-inner:#F5F7FA;
+    --icon-cyan:#0891B2; --tile-icon-bg:#E7EEF6; --dot-tint:rgba(0,168,134,.30);
   }
 }
 :root[data-theme="light"]{
-  --bg:#F6F7F9; --bg-elev:#FFFFFF; --bg-elev2:#EEF1F5; --line:#E1E5EB; --line2:#EBEEF2;
-  --ink:#12161C; --ink2:#4B5566; --mute:#8A94A3;
-}
-:root[data-theme="dark"]{
-  --bg:#0A0E14; --bg-elev:#10151F; --bg-elev2:#161C28; --line:#1E2531; --line2:#262E3C;
-  --ink:#F1F4F8; --ink2:#B8C0CC; --mute:#6B7787;
+  color-scheme:light;
+  --bg:#F3F5F8; --bg-elev:#FFFFFF; --bg-elev2:#F0F3F8; --line:#DDE3EB; --line2:#E9EDF3; --side-line:#DDE3EB;
+  --ink:#0F172A; --ink2:#475569; --mute:#8391A5;
+  --accent:#00A886; --accent-ink:#04231C; --accent-dim:rgba(0,168,134,.12); --blue-text:#1D4ED8;
+  --amber:#B7791F; --amber-dim:#FBF0D5; --red:#D23B43; --red-dim:rgba(210,59,67,.12);
+  --emerald:#10B981; --emerald-dim:#D5F5E8; --emerald-ink:#0B7A55;
+  --pill-bg:#E9EDF3; --pill-fg:#5B6778; --pill-slate-bg:#E8EDF4; --pill-slate-fg:#526078; --pill-green-bg:#DDF5E7; --pill-green-fg:#1A7F45;
+  --pill-red-bg:#FDE3E5; --pill-red-fg:#B4232F; --pill-done-bg:#E0EEF7; --pill-done-fg:#3B6E8F; --pill-stream-bg:#DAF3EF; --pill-stream-fg:#0B8F7E; --pill-stream-dot:#12B76A;
+  --tag-red-bg:#FDE3E5; --tag-red-fg:#C62F3A; --tag-green-bg:#DDF5E7; --tag-green-fg:#137A3A;
+  --kpi-bg:#F1FBF8; --kpi-border:#00B894; --kpi-glow:rgba(0,184,148,.16); --kpi-label:#526078;
+  --nav-active-bg:#EFEAC3; --nav-active-fg:#3A3610;
+  --btn-bg:#FFFFFF; --btn-line:#D5DCE6; --btn-pill-line:#B6BFCC; --btn-neutral:#EDF1F6;
+  --approve-bg:#DDF5E7; --approve-line:#9BD8B4; --reject-bg:#FDE3E5; --reject-line:#F0A5AB; --task-bg:#FFFFFF; --task-inner:#F5F7FA;
+  --icon-cyan:#0891B2; --tile-icon-bg:#E7EEF6; --dot-tint:rgba(0,168,134,.30);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -229,3 +275,139 @@ h1.page-t{font-family:var(--serif);font-weight:600;font-size:25px;letter-spacing
 .kv{display:grid;grid-template-columns:120px 1fr;gap:9px 14px;font-size:12.5px}
 .kv dt{color:var(--mute)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* =====================================================================================================================
+   Wireframe theme: the product team's design applied on top of the base rules above (colours, type, radii, glow, icons).
+   Visual only: nothing here changes markup, copy or behaviour. Inline styles set by the app are overridden with attribute
+   selectors and !important where a class alone can't reach them.
+   ===================================================================================================================== */
+
+/* ---- type: Inter throughout; page titles semibold; the Overview greeting is the one bold serif, in capitals ---- */
+h1.page-t{font-family:var(--serif);font-weight:600;font-size:28px;letter-spacing:-.02em;line-height:1.2;color:var(--ink)}
+.content:has(> .grid.g6 > .kpi) h1.page-t{font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:.005em;text-transform:uppercase}
+.brand{font-family:var(--sans);font-weight:400;font-size:24px;letter-spacing:.02em;gap:10px;padding-bottom:14px}
+.brand .mark{width:27px;height:27px}
+.brand .mark path:first-child{stroke:color-mix(in srgb,var(--ink) 45%,transparent)}
+.brand .mark path:nth-child(2){stroke:color-mix(in srgb,var(--ink) 75%,transparent)}
+.brand .mark circle{fill:var(--ink)}
+.brand u{border-bottom:0;padding-bottom:0}
+.card-h h3{font-size:14.5px;font-weight:600}
+.kpi .v{font-family:var(--sans);font-weight:700;letter-spacing:-.025em}
+.modal h2,.login-h{font-family:var(--serif);font-weight:600;letter-spacing:-.015em}
+.serif{font-weight:600}
+
+/* ---- canvas: page and sidebar share one background; the dot grid fades out from the top right ---- */
+.main{position:relative;background-image:none}
+.main::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(var(--dot-tint) 1px,transparent 1px);background-size:16px 16px;
+  -webkit-mask-image:linear-gradient(205deg,#000 0%,rgba(0,0,0,.35) 32%,transparent 62%);mask-image:linear-gradient(205deg,#000 0%,rgba(0,0,0,.35) 32%,transparent 62%)}
+.content{position:relative;z-index:1}
+.top{background:color-mix(in srgb,var(--bg) 82%,transparent);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-bottom:0}
+
+/* ---- sidebar: text-only navigation, an olive highlight for the current page ---- */
+.side{background:var(--bg);border-right:1px solid var(--side-line);padding:18px 14px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.nav{gap:1px}
+.nav button{padding:6px 12px;border-radius:7px;font-size:13px;font-weight:500;color:var(--ink2)}
+.nav button:hover{background:var(--bg-elev2);color:var(--ink)}
+.nav button[aria-current="page"]{background:var(--nav-active-bg);color:var(--nav-active-fg)}
+.app:not(.collapsed) .nav button>svg{display:none} /* icons stay in the collapsed, icon-only sidebar, where they are the only label */
+.nav-label{font-size:10.5px;letter-spacing:.1em;padding:0 12px;margin:14px 0 6px}
+.nav + .nav-label{padding-bottom:7px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.nav .badge{border-radius:999px;padding:1px 7px;background:#F52525}
+.sys{background:var(--bg-elev2);border-radius:12px;padding:10px 12px}
+.side-collapse:hover,.icon-btn:hover{background:var(--bg-elev2)}
+
+/* ---- cards and panels ---- */
+.card{background:var(--bg-elev);border:1px solid var(--line);border-radius:16px}
+.card-h{padding:16px 20px}
+.card-b{padding:20px}
+.card:has(> .scroll){border-radius:22px;padding:8px 10px 10px}
+.tbl th{font-size:11px;font-weight:600;color:var(--mute);border-bottom:1px solid var(--line2)}
+.tbl td{border-bottom:1px solid var(--line2)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tr.row:hover td{background:var(--bg-elev2)}
+.tbl tr.row td:first-child{border-radius:10px 0 0 10px} .tbl tr.row td:last-child{border-radius:0 10px 10px 0}
+.modal,.drawer{background:var(--bg-elev);border-radius:18px}
+.drawer{border-radius:0}
+.modal{box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.login-card{border-radius:20px}
+.empty{color:var(--mute)}
+
+/* ---- Overview KPI cards: neon outline with a soft glow ---- */
+.grid.g6>.kpi{background:var(--kpi-bg);border:2px solid var(--kpi-border);border-radius:14px;padding:14px 14px;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--kpi-border) 16%,transparent),0 0 22px var(--kpi-glow)}
+.grid.g6>.kpi .v{font-size:34px;line-height:1.05;color:var(--ink)}
+.grid.g6>.kpi .l{color:var(--kpi-label);font-size:12px;margin-top:6px}
+.grid.g6>.kpi .d{color:var(--accent);font-size:11.5px;margin-top:10px}
+.grid.g3>.kpi .v,.grid.g3>.kpi .serif{color:var(--blue-text)} /* Analytics: the big metric numbers are blue */
+.grid.g3>.kpi .v{font-size:30px}
+
+/* ---- buttons ---- */
+.btn{border-radius:10px;padding:9px 16px;background:var(--btn-bg);border:1px solid var(--btn-line);color:var(--ink);font-weight:600}
+.btn:hover{background:var(--bg-elev2)}
+.btn.primary,.btn.accent{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover,.btn.accent:hover{background:var(--blue);filter:brightness(1.12);opacity:1}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.sm{padding:6px 13px;border-radius:9px}
+.btn.danger{background:var(--btn-bg)}
+.kill{border-radius:10px}
+.filters button{background:var(--btn-bg);border:1px solid var(--btn-line);color:var(--pill-slate-fg);padding:6px 15px}
+.filters button[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff}
+.tabs button[aria-selected="true"]{border-bottom-color:var(--blue)}
+.field input,.field select,.field textarea{background:var(--bg-elev2);border-radius:10px;border-color:var(--btn-line)}
+
+/* ---- status pills: fully round with a dot for statuses, small-radius rectangles for stages ---- */
+.pill{background:var(--pill-bg);color:var(--pill-fg);border-radius:6px;padding:3px 9px}
+.pill:has(> .dot){border-radius:999px;padding:4px 11px}
+.pill.live{background:var(--pill-green-bg);color:var(--pill-green-fg)}
+.pill.live:has(> .dot){background:var(--emerald-dim);color:var(--emerald-ink)}
+.pill.live:has(> .dot) .dot{color:var(--emerald)}
+.card-h .pill.live:has(> .dot){background:var(--pill-stream-bg);color:var(--pill-stream-fg)}
+.card-h .pill.live:has(> .dot) .dot{color:var(--pill-stream-dot)}
+.pill.paused{background:var(--pill-red-bg);color:var(--pill-red-fg)}
+.pill.paused:has(> .dot){background:var(--pill-slate-bg);color:var(--pill-slate-fg)} /* a paused campaign is neutral; a rejected prospect is red */
+.pill.draft,.pill.archived{background:var(--pill-slate-bg);color:var(--pill-slate-fg)}
+.pill.done{background:var(--pill-done-bg);color:var(--pill-done-fg)}
+.tag{border-radius:5px;padding:3px 8px;letter-spacing:.05em}
+.tag.red{background:var(--tag-red-bg);color:var(--tag-red-fg)}
+.tag.green{background:var(--tag-green-bg);color:var(--tag-green-fg)}
+.tag.amber{background:var(--amber-dim);color:var(--amber)}
+
+/* ---- campaign cards ---- */
+article.card h3{font-size:17px!important;font-weight:600!important;letter-spacing:-.01em}
+.card>div[style*="grid-template-columns:repeat(3,1fr)"]{gap:10px;border:0!important;padding:0 18px 6px!important}
+.card>div[style*="grid-template-columns:repeat(3,1fr)"]>div{background:var(--bg-elev2);border:0!important;border-radius:12px;padding:11px 14px!important;
+  display:flex;flex-direction:column-reverse;justify-content:flex-end} /* the caption reads above the number, as in the design */
+.card>div[style*="grid-template-columns:repeat(3,1fr)"]>div .serif{font-size:22px!important;font-weight:600;line-height:1.2}
+.health{gap:4px}
+.health i{height:6px;border-radius:999px;background:var(--emerald)}
+.health i.off{background:var(--line2)}
+.meter{background:var(--line2)} .meter i{background:var(--accent)}
+
+article.card div[style*="gap:6px;margin-top:9px"]{flex-wrap:wrap}
+
+/* ---- agent cards ---- */
+[data-agent-card]{border-radius:18px}
+[data-agent-card]>div:first-child b{font-size:15.5px!important;font-weight:600;letter-spacing:-.01em}
+[data-agent-card] .grid.g3>div{background:var(--bg-elev2);border-radius:12px;padding:10px 12px;min-width:0;display:flex;flex-direction:column-reverse;justify-content:flex-end}
+[data-agent-card] .grid.g3>div .serif{font-size:17px!important;font-weight:600;line-height:1.25;letter-spacing:-.02em;white-space:nowrap}
+[data-agent-card] .grid.g3>div .mute{font-size:10.5px!important}
+[data-agent-card] .pill{white-space:nowrap;flex:none}
+[data-agent-card] .btn.sm{border-radius:999px;background:var(--btn-bg);border-color:var(--btn-pill-line);justify-content:center;padding:6px 14px}
+div[style*="width:30px;height:30px;border-radius:9px"],div[style*="width:28px;height:28px;border-radius:8px"]{background:transparent!important;color:var(--icon-cyan)!important}
+div[style*="width:30px;height:30px;border-radius:9px"] svg,div[style*="width:28px;height:28px;border-radius:8px"] svg{stroke-width:1.6}
+div[style*="width:32px;height:32px;border-radius:9px"]{background:var(--tile-icon-bg)!important;border-radius:10px!important}
+
+/* ---- tasks and approvals ---- */
+.card:has(> .tag){background:var(--task-bg);border-radius:14px}
+.card:has(> .tag) .card{background:var(--task-inner)!important;border-radius:10px}
+[data-task].btn{background:var(--btn-neutral);border-color:transparent;border-radius:8px;padding:7px 14px}
+[data-task].btn.primary{background:var(--approve-bg);border:1px solid var(--approve-line);color:#F1F5F3}
+[data-task].btn.danger{background:var(--reject-bg);border:1px solid var(--reject-line);color:var(--tag-red-fg)}
+
+/* ---- charts: a soft glow on the line, blue bars that fade with rank ---- */
+svg path[stroke="var(--accent)"]{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--accent) 55%,transparent))}
+.bars .b i{background:linear-gradient(180deg,var(--bar1-a),var(--bar1-b));border-radius:6px 6px 0 0;box-shadow:0 0 22px color-mix(in srgb,var(--bar1-a) 28%,transparent)}
+.bars .b:nth-child(2) i{background:linear-gradient(180deg,var(--bar2-a),var(--bar2-b));box-shadow:none}
+.bars .b:nth-child(n+3) i{background:linear-gradient(180deg,var(--bar3-a),var(--bar3-b));box-shadow:none}
+.bars .b span.v{font-style:italic}
