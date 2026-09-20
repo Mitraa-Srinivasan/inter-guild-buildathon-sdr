@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+
+# Claude Code session lock (its own scheduler bookkeeping, not project code)
+.claude/scheduled_tasks.lock
