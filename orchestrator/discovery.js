@@ -10,7 +10,7 @@ const { discoveryConfig, tavilySearch, groqJson } = require('../agents/discovery
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 10;
 const MAX_QUERIES = 3;
-const RESULTS_PER_QUERY = 6;
+const RESULTS_PER_QUERY = 8;
 const SNIPPET_CHARS = 1000;
 
 // Estimated cost in USD (list prices, not measured): Groq gpt-oss-120b at about $0.15 / $0.60 per million input / output tokens,
@@ -22,27 +22,51 @@ const TAVILY_PER_SEARCH = 0.008;
 const arr = (v) => (Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [v]);
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
-// Up to three search queries from the campaign's ICP (roles, industries, geography, size, funding stage).
-function buildQueries(campaign) {
+// How a role reads in a news headline: "CTO" -> "Chief Technology Officer", "VP Engineering" -> "VP of Engineering".
+const spell = (role) => {
+  const r = role.trim();
+  const full = { CTO: 'Chief Technology Officer', CIO: 'Chief Information Officer', CISO: 'Chief Information Security Officer', CPO: 'Chief Product Officer', CDO: 'Chief Digital Officer' }[r.toUpperCase()];
+  return full || r.replace(/^(VP|Head|Director) (?!of\b)/i, (m, t) => `${t} of `);
+};
+
+// Up to three searches from the campaign's ICP, each { query, topic, time_range }. They aim at moments when a company is
+// visibly growing and its leaders are named in print: an appointment or hire, and a funding round that comes with one. All use
+// Tavily's news topic with a one-year window, the only mode that returns a publication date on every result, so the model can
+// see how old each source is and stale ones are ruled out.
+function buildSearches(campaign) {
   const icp = campaign.icp_json || {};
   const cc = icp.company_criteria || {};
   const roles = arr(icp.roles).map(str).filter(Boolean);
   const industries = arr(cc.industries || icp.industries).map(str).filter(Boolean);
-  const geo = arr(icp.geo).map(str).filter(Boolean).slice(0, 2).join(' or ');
-  const stage = arr(cc.funding_stage).map(str).filter(Boolean).join(' ');
-  const ec = cc.employee_count;
-  const size = ec && typeof ec === 'object' ? [ec.min, ec.max].filter((x) => x !== undefined && x !== null).join('-') + ' employees' : '';
+  const geo = arr(icp.geo).map(str).filter(Boolean)[0] || ''; // one region keeps the query short; the model checks the rest of the ICP
+  const industry = industries[0] || '';
 
-  const queries = [];
+  const searches = [];
   if (roles.length || industries.length) {
-    queries.push([roles[0], 'at', industries[0], 'company', geo, 'linkedin'].filter(Boolean).join(' '));
-    queries.push([industries.slice(0, 2).join(' '), 'companies', geo, size, 'leadership team', roles.slice(0, 2).join(' ')].filter(Boolean).join(' '));
-    if (stage || roles.length) queries.push([industries[0], geo, stage, 'raised funding hiring', roles[0]].filter(Boolean).join(' '));
+    const role0 = spell(roles[0] || ''), role1 = spell(roles[1] || roles[0] || '');
+    // Short, natural announcement phrasing on purpose. Tried live against Tavily: one long chain of OR terms starves the search
+    // (1 result) and funding-round headlines name founders rather than the engineering leader, whereas "appoints <role> <industry>"
+    // returns dated announcements that name the person and the company.
+    // 1. An announced appointment for the first target role.
+    searches.push({ query: ['appoints', role0, industry, 'company', geo], topic: 'news', time_range: 'year' });
+    // 2. The same for the second role (or a "hires" phrasing of the first when there is only one), a different slice of the news.
+    searches.push({ query: [roles[1] ? 'appoints' : 'hires', role1, industry, 'company', geo], topic: 'news', time_range: 'year' });
+    // 3. Leadership-moves roundups: one article lists many appointments (3 of the 5 prospects in the first live run came from
+    // these). A funding-flavoured version ("raises Series B and appoints new CTO") was tried and returned nothing usable.
+    searches.push({ query: ['leadership moves executive appointments new', roles[0], roles[1] ? spell(roles[1]) : '', industry], topic: 'news', time_range: 'year' });
   } else {
-    queries.push([campaign.name, campaign.description].filter(Boolean).join(' '));
+    searches.push({ query: [campaign.name, campaign.description], topic: 'general', time_range: 'year' });
   }
-  return [...new Set(queries.map((q) => q.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, MAX_QUERIES);
+  const seen = new Set();
+  return searches
+    .map((s) => ({ ...s, query: s.query.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() }))
+    .filter((s) => s.query && !seen.has(s.query) && seen.add(s.query))
+    .slice(0, MAX_QUERIES);
 }
+
+// The query text of each search (kept for callers and tests that only care about the words).
+const buildQueries = (campaign) => buildSearches(campaign).map((s) => s.query);
+const describeSearch = (s) => `${s.query} [${s.topic}${s.time_range ? `, past ${s.time_range}` : ''}]`;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isHttp = (u) => /^https?:\/\//i.test(u);
@@ -80,13 +104,20 @@ Rules:
 - Include a person only if the results name them AND say what their role is at a specific company that plausibly matches the ideal customer profile.
 - Set email and linkedin_url to null unless the results explicitly contain them.
 - Prefer decision makers whose title matches the target roles.
+- In fit_reason, and in company_data, state only what the results say. If company size or funding stage is not stated, say "size not stated" or "funding not stated" (and use null in company_data); never guess or write "likely".
+- Each result shows when it was published, when known. Prefer people named in recent sources (the last 12 months). Skip anyone whose only mention is more than 2 years old, or whose role the source describes as past or ended. If the date is unknown, include the person only if the text presents the role as current.
 Answer with a JSON object: {"prospects":[{"name":string,"title":string,"company":string,"linkedin_url":string|null,"email":string|null,"company_data":{"employee_count":number|null,"industry":string|null,"location":string|null,"funding_stage":string|null,"about":string},"source_url":string,"fit_reason":string}]}
 If the results name nobody suitable, answer {"prospects":[]}.`;
 
-function buildUserPrompt(campaign, results, limit) {
-  const lines = [`Campaign: ${campaign.name}`, '', 'Ideal customer profile:', formatIcpCriteria(campaign.icp_json), '', `Return at most ${limit} prospects.`, '', 'Search results:'];
-  results.forEach((r, i) => lines.push(`[${i + 1}] ${r.title}`, `URL: ${r.url}`, r.content.slice(0, SNIPPET_CHARS), ''));
+function buildUserPrompt(campaign, results, limit, today = new Date()) {
+  const lines = [`Today's date: ${today.toISOString().slice(0, 10)}`, `Campaign: ${campaign.name}`, '', 'Ideal customer profile:', formatIcpCriteria(campaign.icp_json), '', `Return at most ${limit} prospects.`, '', 'Search results:'];
+  results.forEach((r, i) => lines.push(`[${i + 1}] ${r.title}`, `URL: ${r.url}`, `Published: ${r.published || 'unknown'}`, r.content.slice(0, SNIPPET_CHARS), ''));
   return lines.join('\n');
+}
+
+// Dated results first, newest first, then undated ones (their order is kept).
+function byRecency(results) {
+  return results.map((r, i) => ({ r, i })).sort((a, b) => (b.r.published || '').localeCompare(a.r.published || '') || a.i - b.i).map((x) => x.r);
 }
 
 const escapeLike = (s) => s.replace(/[\\%_]/g, (m) => '\\' + m);
@@ -130,8 +161,9 @@ async function runDiscovery(campaignId, { limit } = {}) {
   if (settings && settings.kill_switch_on) return { blocked: true, reason: 'kill_switch_on' };
 
   const want = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const queries = buildQueries(campaign);
-  const inputSummary = `Discovery for "${campaign.name}" (up to ${want} prospects). Searches:\n${queries.map((q) => `- ${q}`).join('\n')}`;
+  const plan = buildSearches(campaign);
+  const queries = plan.map((s) => s.query);
+  const inputSummary = `Discovery for "${campaign.name}" (up to ${want} prospects). Searches:\n${plan.map((s) => `- ${describeSearch(s)}`).join('\n')}`;
 
   let results = [];
   let usage = { prompt: 0, completion: 0, total: 0 };
@@ -140,12 +172,13 @@ async function runDiscovery(campaignId, { limit } = {}) {
   let candidates = [];
   try {
     const seen = new Set();
-    for (const q of queries) {
+    for (const s of plan) {
       searches += 1;
-      for (const r of await tavilySearch(q, { maxResults: RESULTS_PER_QUERY })) {
+      for (const r of await tavilySearch(s.query, { maxResults: RESULTS_PER_QUERY, topic: s.topic, timeRange: s.time_range })) {
         if (r.url && !seen.has(r.url)) { seen.add(r.url); results.push(r); }
       }
     }
+    results = byRecency(results);
     if (!results.length) {
       const cost = searches * TAVILY_PER_SEARCH;
       await logDiscoveryActivity(campaignId, { input: inputSummary, output: 'The searches returned no results.', status: 'success', model: null, tokens: 0, cost });
@@ -154,6 +187,9 @@ async function runDiscovery(campaignId, { limit } = {}) {
     const ai = await groqJson({ system: SYSTEM_PROMPT, user: buildUserPrompt(campaign, results, want) });
     usage = ai.usage; model = ai.model;
     candidates = arr(ai.data && ai.data.prospects).map(cleanCandidate).filter(Boolean);
+    // The source's real publication date comes from Tavily (matched by URL), never from what the model says.
+    const dateByUrl = new Map(results.map((r) => [r.url, r.published]));
+    for (const c of candidates) { const d = c.source_url && dateByUrl.get(c.source_url); if (d) c.source_date = d; }
   } catch (err) {
     const cost = searches * TAVILY_PER_SEARCH + usage.prompt * GROQ_IN_PER_TOKEN + usage.completion * GROQ_OUT_PER_TOKEN;
     await logDiscoveryActivity(campaignId, { input: inputSummary, output: err.message, status: 'failed', model, tokens: usage.total, cost });
@@ -178,7 +214,7 @@ async function runDiscovery(campaignId, { limit } = {}) {
     } else {
       prospect = unwrap(await supabase.from('prospects').insert({
         name: c.name, title: c.title, company: c.company, email: c.email, linkedin_url: c.linkedin_url, source: 'discovery',
-        company_data_json: { ...c.company_data, ...(c.source_url ? { source_url: c.source_url } : {}), ...(c.fit_reason ? { fit_reason: c.fit_reason } : {}) },
+        company_data_json: { ...c.company_data, ...(c.source_url ? { source_url: c.source_url } : {}), ...(c.source_date ? { source_date: c.source_date } : {}), ...(c.fit_reason ? { fit_reason: c.fit_reason } : {}) },
       }).select().single());
     }
     const cp = unwrap(await supabase.from('campaign_prospects').insert({ campaign_id: campaignId, prospect_id: prospect.id, funnel_state: 'discovered' }).select().single());
@@ -195,4 +231,4 @@ async function runDiscovery(campaignId, { limit } = {}) {
   return { campaign, queries, found: candidates.length, created, skipped, usage: { ...usage, searches, estimated_cost: estimatedCost } };
 }
 
-module.exports = { runDiscovery, buildQueries, cleanCandidate, DEFAULT_LIMIT, MAX_LIMIT };
+module.exports = { runDiscovery, buildQueries, buildSearches, buildUserPrompt, byRecency, SYSTEM_PROMPT, cleanCandidate, DEFAULT_LIMIT, MAX_LIMIT };

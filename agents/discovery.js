@@ -16,7 +16,9 @@ function discoveryConfig() {
   return { configured: missing.length === 0, missing, groq: Boolean(process.env.GROQ_API_KEY), tavily: Boolean(process.env.TAVILY_API_KEY) };
 }
 
-async function postJson(url, headers, body, label) {
+// A 429 (rate limit) is retried once after the wait the service asks for (Retry-After, at most 15s): Groq's free tier allows
+// only 8,000 tokens a minute, so two discovery runs close together can trip it.
+async function postJson(url, headers, body, label, retried = false) {
   let res;
   try {
     res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -27,6 +29,11 @@ async function postJson(url, headers, body, label) {
   let json = null;
   try { json = JSON.parse(text); } catch { /* handled below */ }
   if (!res.ok) {
+    if (res.status === 429 && !retried) {
+      const wait = Math.min(Math.max(Number(res.headers.get('retry-after')) || 8, 1), 15);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      return postJson(url, headers, body, label, true);
+    }
     const detail = (json && ((json.error && (json.error.message || json.error)) || json.detail || json.message)) || text.slice(0, 200);
     throw new HttpError(502, `${label} returned HTTP ${res.status}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
   }
@@ -35,10 +42,24 @@ async function postJson(url, headers, body, label) {
 }
 
 // -> [{ title, url, content }]
-async function tavilySearch(query, { maxResults = 6 } = {}) {
-  const json = await postJson(TAVILY_URL, { Authorization: `Bearer ${process.env.TAVILY_API_KEY}` },
-    { query, search_depth: 'basic', max_results: maxResults, include_answer: false }, 'Tavily search');
-  return (json.results || []).map((r) => ({ title: r.title || '', url: r.url || '', content: r.content || '' }));
+// Tavily's own values. topic 'news' is the one that returns a published_date on every result and honours time_range (checked live:
+// with topic 'general' the window is accepted but results carry no date, so their age can't be verified). Anything else is
+// dropped here rather than sent, because Tavily answers an unknown time_range with HTTP 400.
+const TIME_RANGES = new Set(['day', 'week', 'month', 'year']);
+
+// 'Wed, 22 Apr 2026 00:00:00 GMT' (or an ISO string) -> '2026-04-22', or null if it isn't a date.
+function isoDay(v) {
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : null;
+}
+
+// -> [{ title, url, content, published }]  (published: 'YYYY-MM-DD' or null when Tavily gave no date)
+async function tavilySearch(query, { maxResults = 6, topic, timeRange } = {}) {
+  const body = { query, search_depth: 'basic', max_results: maxResults, include_answer: false };
+  if (topic === 'news') body.topic = 'news';
+  if (TIME_RANGES.has(timeRange)) body.time_range = timeRange;
+  const json = await postJson(TAVILY_URL, { Authorization: `Bearer ${process.env.TAVILY_API_KEY}` }, body, 'Tavily search');
+  return (json.results || []).map((r) => ({ title: r.title || '', url: r.url || '', content: r.content || '', published: r.published_date ? isoDay(r.published_date) : null }));
 }
 
 // Chat completion that must answer with a JSON object. -> { data, usage: { prompt, completion, total }, model }
@@ -46,6 +67,7 @@ async function groqJson({ system, user }) {
   const model = groqModel();
   const json = await postJson(GROQ_URL, { Authorization: `Bearer ${process.env.GROQ_API_KEY}` }, {
     model, temperature: 0.1, response_format: { type: 'json_object' },
+    ...(/gpt-oss/.test(model) ? { reasoning_effort: 'low' } : {}), // picking named people out of text needs little hidden reasoning; keeps tokens down
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
   }, 'Groq');
   const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
