@@ -26,6 +26,7 @@ const I={
  bolt:'<path d="M13 2L4 14h6l-1 8 9-12h-6z"/>',
  pause:'<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
  collapse:'<path d="M15 6l-6 6 6 6"/>',
+ logout:'<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
  key:'<circle cx="8" cy="8" r="4.5"/><path d="M11.3 11.3L21 21M16 16l3-3M19 19l2.5-2.5"/>',
 };
 const ic=(n,s)=>`<svg viewBox="0 0 24 24" ${s?`style="width:${s}px;height:${s}px"`:''}>${I[n]||''}</svg>`;
@@ -76,6 +77,7 @@ let SUPPRESSION=[];
 const S={page:'overview',theme:null,campId:null,campTab:'Overview',campFilter:'all',pid:null,agentId:null,promptSel:'icp',promptView:null,
  convTab:'all',killed:false,collapsed:false,modal:null,drawer:null,
  ready:false,loadError:null,busy:false,
+ user:null,authChecked:false,loginBusy:false,loginError:null,loginNotice:null,loginEmail:'', // who is signed in (from GET /auth/me) and the login form
  cps:{},acts:{},meetings:[],campReps:[],costs:{},pv:{},
  health:null,spend:null,guard:null,gchan:{},gchanMissing:false,auto:false,autoMissing:false,working:null};
 try{S.collapsed=localStorage.getItem('sdr-collapsed')==='1'}catch(_){}
@@ -104,6 +106,13 @@ async function api(method,path,body){
   try{res=await fetch(API+path,{method,headers:body!==undefined?{'Content-Type':'application/json'}:{},body:body!==undefined?JSON.stringify(body):undefined})}
   catch(_){throw new Error(location.protocol==='file:'?'Open this page through the backend (npm start, then http://localhost:3000)':'Cannot reach the backend')}
   let j=null;try{j=await res.json()}catch(_){}
+  // A 401 anywhere else means the session has ended (expired, signed out elsewhere, or the server forgot it): back to the login page,
+  // with a clean slate so no data from the old session stays in memory. (A wrong password on the login form is also a 401: not this.)
+  if(res.status===401&&S.user&&!path.startsWith('/auth/')){
+    S.user=null;
+    try{sessionStorage.setItem('sdr-notice','Your session has ended. Please sign in again.')}catch(_){}
+    location.reload();
+  }
   if(!res.ok){const e=new Error((j&&(j.error||(j.blocked&&'Blocked: '+j.reason)))||`Request failed (${res.status})`);e.status=res.status;throw e}
   return j;
 }
@@ -255,8 +264,20 @@ async function loadAll(){
   await Promise.all([loadKill(),loadApprovals(),loadMeetings(),loadCampReps(),loadReps(),loadSuppression(),loadHealth(),loadSpend(),loadAgentStats(),loadGuard(),loadChannels(),loadAutonomous(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
   rebuildAll();
 }
+// Starts the app: first find out who is signed in. No session -> the login page and NO data requests at all.
 async function boot(){
   S.loadError=null;S.ready=false;render();
+  try{
+    S.user=await api('GET','/auth/me');
+  }catch(e){
+    S.user=null;
+    if(e.status===403)S.loginError=e.message;                       // valid sign-in, but not a team member
+    else if(e.status!==401)S.loadError=e.message;                    // backend / auth service unreachable: a retry screen, not a login form
+  }
+  S.authChecked=true;
+  try{const n=sessionStorage.getItem('sdr-notice');if(n){S.loginNotice=n;sessionStorage.removeItem('sdr-notice')}}catch(_){}
+  if(!S.user){render();return}
+  render();
   try{await loadAll();S.ready=true}catch(e){S.loadError=e.message}
   render();
 }
@@ -340,7 +361,6 @@ function sidebar(){
 }
 // Sidebar footer: service health, today's AI spend against a budget, who is signed in, and the collapse control.
 const SPEND_BUDGET=50; // placeholder: no budget is configured anywhere yet
-const ME={name:'Madhav',role:'Workspace admin'}; // placeholder: there is no login yet (same persona as the Account page)
 const money=v=>'$'+(v<1?v.toFixed(4):v.toFixed(2));
 function sidePanel(){
   const h=S.health,sp=S.spend;
@@ -356,7 +376,7 @@ function sidePanel(){
       <div class="mute" style="font-size:10.5px;margin-top:2px">of ${money(SPEND_BUDGET)} budget (placeholder)</div>
       <div class="meter"><i style="width:${spent?Math.max(2,Math.min(100,spent/SPEND_BUDGET*100)):0}%"></i></div></div>
   </div>
-  <div class="me"><span class="avatar" style="background:${avatarColor(ME.name)};width:30px;height:30px;font-size:12px">${initials(ME.name)}</span><div class="txt" style="min-width:0"><b style="font-size:12.5px">${esc(ME.name)}</b><div class="mute" style="font-size:11px">${esc(ME.role)}</div></div></div>
+  <div class="me"><span class="avatar" style="background:${avatarColor(S.user.display_name)};width:30px;height:30px;font-size:12px">${initials(S.user.display_name)}</span><div class="txt" style="min-width:0"><b style="font-size:12.5px">${esc(S.user.display_name)}</b><div class="mute" style="font-size:11px">${esc(S.user.role)}</div></div><button class="icon-btn" data-act="logout" title="Sign out" aria-label="Sign out" style="margin-left:auto">${ic('logout',15)}</button></div>
   <button class="side-collapse" data-act="collapse" title="${S.collapsed?'Expand sidebar':'Collapse sidebar'}" aria-label="${S.collapsed?'Expand sidebar':'Collapse sidebar'}">${ic('collapse')}<span class="lbl">Collapse</span></button>`;
 }
 function topbar(){
@@ -374,6 +394,38 @@ function topbar(){
 function shell(inner){
   return `<div class="app${S.collapsed?' collapsed':''}">${sidebar()}<main class="main">${topbar()}<div class="content">${inner}</div></main></div>${modal()}${drawer()}`;
 }
+/* ================= LOGIN ================= */
+// A bare centred screen with no navigation and no data (used before we know who you are).
+const plainScreen=inner=>`<main class="login"><div class="login-card" style="text-align:center">${inner}</div></main>`;
+function loginPage(){
+  return `<main class="login"><form class="login-card" id="login-form" novalidate>
+    <div class="brand" style="justify-content:center;padding:0 0 18px"><svg class="mark" viewBox="0 0 24 24" fill="none"><path d="M3 15a9 9 0 0118 0" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/><path d="M7 15a5 5 0 0110 0" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" opacity=".6"/><circle cx="12" cy="17" r="1.6" fill="var(--accent)"/></svg><span>SDR OS</span></div>
+    <h1 class="login-h">Sign in</h1>
+    <p class="mute" style="font-size:12.5px;margin-bottom:18px;text-align:center">Use your team account to open the control plane.</p>
+    ${S.loginNotice?`<div class="login-msg note" role="status">${esc(S.loginNotice)}</div>`:''}
+    ${S.loginError?`<div class="login-msg err" role="alert">${esc(S.loginError)}</div>`:''}
+    <div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" autocomplete="username" spellcheck="false" autocapitalize="none" required value="${esc(S.loginEmail)}"></div>
+    <div class="field"><label for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary" type="submit" style="width:100%;justify-content:center;padding:10px" ${S.loginBusy?'disabled':''}>${S.loginBusy?'Signing in…':'Sign in'}</button>
+    <p class="mute" style="font-size:11.5px;margin-top:16px;text-align:center">Access is limited to team members. Ask an admin if you need an account.</p>
+  </form></main>`;
+}
+async function doLogin(){
+  if(S.loginBusy)return;
+  const email=(document.getElementById('login-email')?.value||'').trim(),password=document.getElementById('login-password')?.value||'';
+  S.loginEmail=email;S.loginNotice=null;
+  if(!email||!password){S.loginError='Enter your email and password.';render();return}
+  S.loginBusy=true;S.loginError=null;render();
+  try{
+    await api('POST','/auth/login',{email,password});
+    S.loginBusy=false;S.loginEmail='';
+    await boot(); // now there is a session: reads /auth/me and loads the data
+  }catch(e){
+    S.loginBusy=false;S.loginError=e.message||'Could not sign in';render();
+    const pw=document.getElementById('login-password');if(pw){pw.value='';pw.focus()}
+  }
+}
+
 // Shown until the first load finishes, or if it fails.
 function bootScreen(){
   return shell(S.loadError
@@ -787,7 +839,16 @@ function settingsPage(){
   </div></div>`);
 }
 function helpPage(){return shell(`<h1 class="page-t" style="margin-bottom:14px">Help &amp; support</h1><section class="card card-b mute">Reach the team in the DronaHQ Discord, or check the docs linked from Integrations.</section>`)}
-function accountPage(){return shell(`<h1 class="page-t" style="margin-bottom:14px">Account</h1><section class="card card-b"><div class="kv"><dt>Signed in as</dt><dd>Madhav</dd><dt>Plan</dt><dd>PAYG</dd></div></section>`)}
+// Everything here comes from the signed-in session (GET /auth/me): the profile of whoever is actually logged in.
+function accountPage(){
+  const u=S.user;
+  return shell(`<h1 class="page-t" style="margin-bottom:14px">Account</h1>
+  <section class="card card-b" style="max-width:560px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px"><span class="avatar" style="background:${avatarColor(u.display_name)};width:44px;height:44px;font-size:15px">${initials(u.display_name)}</span><div><b style="font-size:15px">${esc(u.display_name)}</b><div class="mute" style="font-size:12px">${esc(u.role)}</div></div></div>
+    <div class="kv"><dt>Signed in as</dt><dd>${esc(u.display_name)}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Role</dt><dd>${esc(u.role)}</dd><dt>Team member since</dt><dd>${fmtDate(u.member_since)}</dd></div>
+    <div style="margin-top:20px"><button class="btn" data-act="logout">${ic('logout',14)} Sign out</button></div>
+  </section>`);
+}
 
 /* ================= MODAL / DRAWER ================= */
 function modal(){
@@ -861,9 +922,14 @@ function render(){
   const typed={};document.querySelectorAll('#root input[id],#root textarea[id],#root select[id]').forEach(el=>{typed[el.id]=el.value});
   const focusId=document.activeElement&&document.activeElement.id;
   const y=window.scrollY;
-  document.getElementById('root').innerHTML=S.ready?body():bootScreen();
+  // The app itself (sidebar, pages, data) only ever renders for a signed-in user; everyone else gets the login page or a plain screen.
+  document.getElementById('root').innerHTML=!S.authChecked?plainScreen('<div class="empty">Loading…</div>')
+    :S.user?(S.ready?body():bootScreen())
+    :S.loadError?plainScreen(`<div class="empty"><p style="margin-bottom:12px">Couldn't reach the backend.</p><p class="mute" style="margin-bottom:16px">${esc(S.loadError)}</p><button class="btn primary" data-act="retry">Retry</button></div>`)
+    :loginPage();
   for(const [id,v] of Object.entries(typed)){const el=document.getElementById(id);if(el)el.value=v}
   if(focusId)document.getElementById(focusId)?.focus();
+  else if(S.authChecked&&!S.user&&!S.loadError)(document.getElementById('login-email')?.value?document.getElementById('login-password'):document.getElementById('login-email'))?.focus();
   window.scrollTo(0,y);
 }
 function go(p){S.page=p;S.campId=null;S.pid=null;render();refreshFor(p)}
@@ -916,6 +982,11 @@ document.addEventListener('click',e=>{
   const a=d.act;
   if(a==='theme'){const cur=document.documentElement.dataset.theme||'dark';const next=cur==='dark'?'light':'dark';document.documentElement.dataset.theme=next;try{localStorage.setItem('sdr-theme',next)}catch(_){}return render()}
   if(a==='retry')return boot();
+  if(a==='logout')return act(async()=>{
+    try{await api('POST','/auth/logout')}catch(_){}
+    try{sessionStorage.setItem('sdr-notice','You have been signed out.')}catch(_){}
+    S.user=null;location.reload(); // a fresh page: nothing from this session is left in memory
+  });
   if(a==='discover')return act(async()=>{
     S.working={id:d.id,kind:'discover'};render();
     try{
@@ -1007,6 +1078,9 @@ document.addEventListener('click',e=>{
     await api('POST','/suppression-list',{value,reason:'Added from dashboard',scope:'global'});
     await loadSuppression();el.value='';toast(`${value.toLowerCase()} added to the suppression list`);render();
   });
+});
+document.addEventListener('submit',e=>{
+  if(e.target.id==='login-form'){e.preventDefault();doLogin()}
 });
 document.addEventListener('change',e=>{
   if(e.target.dataset.act==='psel'){S.promptSel=e.target.value;S.promptView=null;render();refreshCamp(S.campId,'Prompts')}
