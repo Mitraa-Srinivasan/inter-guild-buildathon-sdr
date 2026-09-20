@@ -31,6 +31,51 @@ const I={
 };
 const ic=(n,s)=>`<svg viewBox="0 0 24 24" ${s?`style="width:${s}px;height:${s}px"`:''}>${I[n]||''}</svg>`;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ================= MARKDOWN for agent text =================
+   Agents answer in markdown (## headings, **bold**, - bullets, [links](url)). Everything is HTML-escaped FIRST and only then a small fixed set of
+   patterns becomes tags, so neither agent output nor a prospect's reply can inject markup. Links: http(s) and mailto only. Inline styles on
+   purpose: the tags carry their own look and need nothing from the stylesheet.
+   md(text) -> block HTML (paragraphs, headings, lists, tables, quotes, code, rules); mdInline(text) -> inline HTML for one-line fields. */
+const MD_A='style="color:color-mix(in srgb,var(--blue) 55%,var(--ink));text-decoration:underline" target="_blank" rel="noopener noreferrer"';
+function mdInline(raw){
+  const keep=[],stash=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
+  let s=esc(String(raw??'').replace(/\u0000/g,''));
+  s=s.replace(/`([^`\n]+)`/g,(_,c)=>stash(`<code style="background:var(--bg-elev2);padding:1px 5px;border-radius:4px;font-size:.92em">${c}</code>`));
+  s=s.replace(/\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g,(_,t,u)=>stash(`<a href="${u}" ${MD_A}>${t}</a>`));
+  s=s.replace(/(^|[\s(])(https?:\/\/[^\s<)]*[^\s<).,;:!?])/g,(_,p,u)=>p+stash(`<a href="${u}" ${MD_A}>${u}</a>`));
+  s=s.replace(/\*\*([^*\n]+?)\*\*|__([^_\n]+?)__/g,(_,a,b)=>`<strong>${a||b}</strong>`);
+  s=s.replace(/(^|[^*\w])\*([^*\s][^*\n]*?)\*(?![*\w])/g,'$1<em>$2</em>');
+  s=s.replace(/(^|[^_\w])_([^_\s][^_\n]*?)_(?![_\w])/g,'$1<em>$2</em>');
+  return s.replace(/\u0000(\d+)\u0000/g,(_,i)=>keep[+i]);
+}
+function md(raw){
+  const lines=String(raw??'').replace(/\r\n?/g,'\n').replace(/\u0000/g,'').trim().split('\n'),out=[];
+  const H=/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/,UL=/^\s*[-*+]\s+(.*)$/,OL=/^\s*\d+[.)]\s+(.*)$/,BQ=/^\s*>\s?(.*)$/,FENCE=/^\s*```/,ROW=/^\s*\|.*\|\s*$/;
+  const HR=/^\s*([-*_])(\s*\1){2,}\s*$/,SEP=/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+  const blockStart=(l,n)=>H.test(l)||UL.test(l)||OL.test(l)||BQ.test(l)||FENCE.test(l)||HR.test(l)||(ROW.test(l)&&n!==undefined&&SEP.test(n));
+  const cells=l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+  let i=0;
+  while(i<lines.length){
+    const l=lines[i];let m;
+    if(!l.trim()){i++;continue}
+    if(FENCE.test(l)){const code=[];i++;while(i<lines.length&&!FENCE.test(lines[i]))code.push(lines[i++]);i++;
+      out.push(`<pre style="background:var(--bg-elev2);border-radius:8px;padding:10px 12px;overflow-x:auto;font-size:11.5px;margin:6px 0">${esc(code.join('\n'))}</pre>`);continue}
+    if((m=H.exec(l))){const n=m[1].length;out.push(`<div style="font-weight:700;font-size:${n<=2?15:n===3?14:13}px;margin:${out.length?'14px':'0'} 0 5px">${mdInline(m[2])}</div>`);i++;continue}
+    if(HR.test(l)){out.push('<hr style="border:0;border-top:1px solid var(--line2);margin:10px 0">');i++;continue}
+    if(ROW.test(l)&&i+1<lines.length&&SEP.test(lines[i+1])){
+      const head=cells(l);i+=2;const rows=[];while(i<lines.length&&ROW.test(lines[i]))rows.push(cells(lines[i++]));
+      out.push(`<div style="overflow-x:auto;margin:6px 0"><table style="border-collapse:collapse;font-size:12px"><thead><tr>${head.map(c=>`<th style="text-align:left;padding:5px 10px;border-bottom:1px solid var(--line2)">${mdInline(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td style="padding:5px 10px;border-bottom:1px solid var(--line2);vertical-align:top">${mdInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);continue}
+    if(BQ.test(l)){const q=[];while(i<lines.length&&BQ.test(lines[i]))q.push(BQ.exec(lines[i++])[1]);
+      out.push(`<div style="border-left:3px solid var(--line2);padding:2px 0 2px 12px;margin:6px 0;color:var(--mute)">${q.map(mdInline).join('<br>')}</div>`);continue}
+    if(UL.test(l)||OL.test(l)){const ol=!UL.test(l),re=ol?OL:UL,items=[];
+      while(i<lines.length&&re.test(lines[i]))items.push(re.exec(lines[i++])[1]);
+      out.push(`<${ol?'ol':'ul'} style="margin:4px 0 8px;padding-left:20px;list-style:${ol?'decimal':'disc'}">${items.map(t=>`<li style="margin:2px 0">${mdInline(t)}</li>`).join('')}</${ol?'ol':'ul'}>`);continue}
+    const para=[];while(i<lines.length&&lines[i].trim()&&!(para.length&&blockStart(lines[i],lines[i+1])))para.push(lines[i++]);
+    out.push(`<p style="margin:0 0 8px">${para.map(mdInline).join('<br>')}</p>`);
+  }
+  return out.join('');
+}
 const initials=n=>n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
 
 /* ================= DATA (loaded from the backend API; see LIVE DATA below) ================= */
@@ -656,15 +701,17 @@ function prospectDetail(){
     <div style="display:flex;flex-direction:column;gap:14px">
       ${qdCard(p)}
       <section class="card"><div class="card-h"><h3>Research summary</h3><span class="mute" style="font-size:11px">Research &amp; Enrichment agent</span></div>
-        <div class="card-b">${p.raw.context_json?.research?`<div style="font-size:12.5px;white-space:pre-wrap">${esc(String(p.raw.context_json.research).trim())}</div>`:`<div class="mute" style="font-size:12.5px">${esc(p.co)} has not been researched yet.</div>`}</div></section>
-      <section class="card"><div class="card-h"><h3>ICP reasoning</h3></div><div class="card-b ${p.raw.icp_reasoning?'':'mute'}" style="font-size:12.5px;white-space:pre-wrap">${esc(p.raw.icp_reasoning||'Not scored yet.')}</div></section>
+        <div class="card-b">${p.raw.context_json?.research?`<div style="font-size:12.5px;line-height:1.55">${md(p.raw.context_json.research)}</div>`:`<div class="mute" style="font-size:12.5px">${esc(p.co)} has not been researched yet.</div>`}</div></section>
+      <section class="card"><div class="card-h"><h3>ICP reasoning</h3></div><div class="card-b ${p.raw.icp_reasoning?'':'mute'}" style="font-size:12.5px;line-height:1.55">${md(p.raw.icp_reasoning||'Not scored yet.')}</div></section>
       ${(()=>{const ctx=p.raw.context_json||{},st=ctx.strategy;return `<section class="card"><div class="card-h"><h3>Outreach strategy</h3><span class="mute" style="font-size:11px">Outreach Strategy agent</span></div>
-        <div class="card-b">${st?`<dl class="kv"><dt>Next channel</dt><dd>${esc(st.next_channel)}</dd><dt>Contact now</dt><dd>${esc(st.contact_now)}</dd><dt>Timing</dt><dd>${esc(st.timing)}</dd><dt>Reasoning</dt><dd>${esc(st.reasoning)}</dd></dl>`:'<div class="mute" style="font-size:12.5px">No strategy decided yet.</div>'}</div></section>
+        <div class="card-b">${st?`<dl class="kv"><dt>Next channel</dt><dd>${mdInline(st.next_channel)}</dd><dt>Contact now</dt><dd>${mdInline(st.contact_now)}</dd><dt>Timing</dt><dd>${mdInline(st.timing)}</dd><dt>Reasoning</dt><dd>${md(st.reasoning)}</dd></dl>`:'<div class="mute" style="font-size:12.5px">No strategy decided yet.</div>'}</div></section>
       <section class="card"><div class="card-h"><h3>Drafted email</h3><span class="mute" style="font-size:11px">Personalisation agent</span></div>
-        <div class="card-b">${ctx.email_subject&&ctx.email_body?`<div style="font-size:12.5px"><b>${esc(ctx.email_subject)}</b><div style="white-space:pre-wrap;margin-top:8px">${esc(ctx.email_body)}</div>${ctx.email_snippets_used?`<div class="mute" style="font-size:11px;margin-top:10px">Snippets used: ${esc(ctx.email_snippets_used)}</div>`:''}</div>`:'<div class="mute" style="font-size:12.5px">No email drafted yet.</div>'}</div></section>`})()}
+        <div class="card-b">${ctx.email_subject&&ctx.email_body?`<div style="font-size:12.5px"><b>${mdInline(ctx.email_subject)}</b><div style="margin-top:8px;line-height:1.55">${md(ctx.email_body)}</div>${ctx.email_snippets_used?`<div class="mute" style="font-size:11px;margin-top:10px">Snippets used: ${esc(ctx.email_snippets_used)}</div>`:''}</div>`:'<div class="mute" style="font-size:12.5px">No email drafted yet.</div>'}</div></section>
+      ${ctx.voice_call?`<section class="card"><div class="card-h"><h3>Voice call (simulated)</h3><span class="mute" style="font-size:11px">Voice SDR agent${ctx.voice_call.outcome?' · '+esc(String(ctx.voice_call.outcome).replace(/[*_]/g,'')):''}</span></div>
+        <div class="card-b"><div style="font-size:12.5px;line-height:1.55">${md(ctx.voice_call.transcript)}</div>${ctx.voice_call.reasoning?`<div class="mute" style="font-size:11.5px;margin-top:10px">${mdInline(ctx.voice_call.reasoning)}</div>`:''}</div></section>`:''}`})()}
     </div>
     <section class="card"><div class="card-h"><h3>Conversation timeline</h3><span class="mute" style="font-size:11px">One thread across channels</span></div>
-      <div class="card-b">${CONVOS.filter(v=>v.cp===p.id).map(v=>`<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${chName(v.ch)}</b><span class="mute" style="font-size:11px">${v.time}</span></div><p style="font-size:12.5px;margin-top:3px">${esc(v.msg)}</p></div>`).join('')||'<div class="empty" style="padding:16px 0">No replies yet.</div>'}</div></section>
+      <div class="card-b">${CONVOS.filter(v=>v.cp===p.id).map(v=>`<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">${chName(v.ch)}</b><span class="mute" style="font-size:11px">${v.time}</span></div><div style="font-size:12.5px;margin-top:3px;line-height:1.5">${md(v.msg)}</div></div>`).join('')||'<div class="empty" style="padding:16px 0">No replies yet.</div>'}</div></section>
   </div>`);
 }
 
@@ -672,7 +719,7 @@ function prospectDetail(){
 function convList(list){
   return `<section class="card">${list.map(v=>`<div style="display:grid;grid-template-columns:180px 1fr auto auto;gap:14px;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line2)">
     <div><b style="font-size:12.5px">${esc(v.who)}</b><div class="mute" style="font-size:11px">${esc(v.co)} · ${chName(v.ch)}</div></div>
-    <p style="font-size:12.5px">${esc(v.msg)}</p><span class="tag ${INTENT_C[v.intent]}">${v.intent}</span><span class="mute" style="font-size:11px">${v.time}</span></div>`).join('')||'<div class="empty">No conversations.</div>'}</section>`;
+    <div style="font-size:12.5px;line-height:1.5">${md(v.msg)}</div><span class="tag ${INTENT_C[v.intent]}">${v.intent}</span><span class="mute" style="font-size:11px">${v.time}</span></div>`).join('')||'<div class="empty">No conversations.</div>'}</section>`;
 }
 function conversationsPage(){
   const tabs=[['all','All'],['positive','Positive'],['escalated','Escalated'],['not-now','Not now'],['unsubscribe','Unsubscribe']];
@@ -697,7 +744,7 @@ function discoveryCard(){
   const pill=configured?'<span class="pill live"><span class="dot"></span>Ready</span>':'<span class="pill paused">Not configured</span>';
   const lastLine=st.last?String(st.last.output_summary||'').split('\n').pop().slice(0,90):'';
   const task=!configured?'Needs GROQ_API_KEY and TAVILY_API_KEY in .env'
-    :st.last?(st.last.status==='failed'?'Last run failed: '+esc(String(st.last.output_summary||'').split('\n')[0].slice(0,90)):'Last run '+esc(ago(st.last.created_at))+': '+esc(lastLine))
+    :st.last?(st.last.status==='failed'?'Last run failed: '+esc(String(st.last.output_summary||'').split('\n')[0].slice(0,90)):'Last run '+esc(ago(st.last.created_at))+': '+mdInline(lastLine))
     :'Ready. Not run yet: use "Discover prospects" on a campaign\'s Prospects tab';
   const stat=(v,l)=>`<div><div class="serif" style="font-size:16px;font-weight:600">${v}</div><div class="mute" style="font-size:10.5px">${l}</div></div>`;
   return `<section class="card" style="padding:17px;border-style:dashed" data-agent-card="discovery">
@@ -751,7 +798,7 @@ function taskCard(t){
     <div style="display:flex;gap:8px;margin-top:16px">${t.btns.map(([l,c])=>`<button class="btn ${c}" data-task="${t.id}" data-do="${l}">${l}</button>`).join('')}</div></article>`}
   return `<article class="card" style="padding:18px"><span class="tag ${t.tagc}">${t.tag}</span>
    <div style="margin:10px 0 14px"><b style="font-size:14px">${esc(t.who)}</b><div class="mute" style="font-size:11.5px">${esc(t.sub)}</div></div>
-   <div class="grid g3">${[['What happened',t.body.what],['Recommendation',t.body.rec],['Why',t.body.why]].map(([h,x])=>`<div><h4 style="font-size:10.5px;color:var(--mute);margin-bottom:5px">${h}</h4><p style="font-size:12px">${esc(x)}</p></div>`).join('')}</div>
+   <div class="grid g3">${[['What happened',t.body.what],['Recommendation',t.body.rec],['Why',t.body.why]].map(([h,x])=>`<div><h4 style="font-size:10.5px;color:var(--mute);margin-bottom:5px">${h}</h4><div style="font-size:12px;line-height:1.5">${md(x)}</div></div>`).join('')}</div>
    <div style="display:flex;gap:8px;margin-top:16px">${t.btns.map(([l,c])=>`<button class="btn ${c}" data-task="${t.id}" data-do="${l}">${l}</button>`).join('')}</div></article>`;
 }
 
