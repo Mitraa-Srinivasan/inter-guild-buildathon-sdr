@@ -243,7 +243,7 @@ $$;
 revoke all on function claim_dispatch_slot(uuid, uuid, text, integer, integer, integer, text, text) from public, anon, authenticated;
 grant execute on function claim_dispatch_slot(uuid, uuid, text, integer, integer, integer, text, text) to service_role;
 
--- RLS: on, with no policies. Only the service_role key (used by this backend) can access. -----
+-- RLS: on for every table. The team policies are at the end of this file; the service_role key (used by this backend) bypasses RLS. -----
 alter table campaigns          enable row level security;
 alter table reps               enable row level security;
 alter table prompt_versions    enable row level security;
@@ -255,3 +255,43 @@ alter table suppression_list   enable row level security;
 alter table global_settings    enable row level security;
 alter table approvals          enable row level security;
 alter table meetings           enable row level security;
+
+-- Team login (Supabase Auth) --------------------------------------------------------------
+-- One row per Supabase Auth user (auth.users) that belongs to this team. Created only by the backend / db/seed-users.js
+-- with the service key, never from the browser: signing up in Supabase Auth alone does NOT make someone a member.
+create table if not exists profiles (
+  id           uuid primary key references auth.users (id) on delete cascade,
+  display_name text not null,
+  role         text not null default 'Sales Manager',
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+drop trigger if exists profiles_updated_at on profiles;
+create trigger profiles_updated_at before update on profiles for each row execute function set_updated_at();
+alter table profiles enable row level security;
+
+-- Is the signed-in user a team member? security definer so the check can read profiles whatever profiles' own policy says
+-- (no recursion). Deleting someone's profile row removes their access at once.
+create or replace function is_team_member() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where id = auth.uid());
+$$;
+revoke all on function is_team_member() from public, anon;
+grant execute on function is_team_member() to authenticated, service_role;
+
+-- RLS policies: a single shared team, no per-user restriction (deliberately not multi-tenant yet). Any signed-in TEAM MEMBER can
+-- read and write every table. Anyone else (anon, or a Supabase user with no profile row) gets nothing. This backend uses the
+-- service_role key, which bypasses RLS; these policies govern anyone who talks to Supabase directly with a user's session.
+do $$
+declare t text;
+begin
+  foreach t in array array['campaigns', 'reps', 'prompt_versions', 'prospects', 'campaign_prospects', 'activities',
+                           'campaign_reps', 'suppression_list', 'global_settings', 'approvals', 'meetings'] loop
+    execute format('drop policy if exists team_full_access on %I', t);
+    execute format('create policy team_full_access on %I for all to authenticated using (is_team_member()) with check (is_team_member())', t);
+  end loop;
+end $$;
+
+-- Members can see who is on the team; nobody can change profiles through the API (only the service key can).
+drop policy if exists profiles_team_read on profiles;
+create policy profiles_team_read on profiles for select to authenticated using (is_team_member());

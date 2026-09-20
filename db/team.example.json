@@ -1,0 +1,4 @@
+[
+  { "email": "you@company.com", "display_name": "Your Name", "role": "Sales Manager" },
+  { "email": "teammate@company.com", "display_name": "Teammate Name", "role": "Sales Manager" }
+]

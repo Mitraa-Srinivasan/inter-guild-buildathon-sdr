@@ -1,15 +1,25 @@
 const path = require('path');
 const express = require('express');
+const { requireAuth } = require('./lib/auth');
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.disable('x-powered-by');
 
+// ---- reachable without a session --------------------------------------------------------------------------------------
+// Bare liveness for uptime monitors: returns { ok: true } and nothing else.
 app.get('/health', (req, res) => res.json({ ok: true }));
-app.use('/health', require('./routes/health'));
-
-// The control-plane UI is served from the same origin as the API, so it needs no CORS.
+// Sign in / out (GET /auth/me inside still needs a session).
+app.use('/auth', express.json({ limit: '10kb' }), require('./routes/auth'));
+// The control-plane UI is served from the same origin as the API, so it needs no CORS. It holds no data: the login page is
+// part of it, and everything it shows arrives through the protected API below.
 app.use(express.static(path.join(__dirname, 'frontend')));
 
+// ---- everything below needs a valid session ---------------------------------------------------------------------------
+// No session -> 401, before any body is parsed or any route (or even a 404) is looked at, so nothing about the API leaks.
+app.use(requireAuth);
+app.use(express.json({ limit: '1mb' }));
+
+app.use('/health', require('./routes/health')); // /health/services: integration status, so it is protected
 app.use('/campaigns/:id/prompt-versions', require('./routes/promptVersions'));
 app.use('/campaigns', require('./routes/campaigns'));
 app.use('/prospects', require('./routes/prospects'));

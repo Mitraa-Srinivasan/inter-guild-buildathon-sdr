@@ -5,11 +5,12 @@ Autonomous SDR system backend: Supabase schema + CRUD API (Phase 1) and DronaHQ-
 ## Setup
 
 1. Create a Supabase project, then run [db/schema.sql](db/schema.sql) in the SQL editor (safe to re-run).
-2. `cp .env.example .env` and fill in the values (see below). Use the **service_role** Supabase key; RLS is on with no policies.
+2. `cp .env.example .env` and fill in the values (see below). Use the **service_role** (secret) Supabase key: the backend uses it, and it bypasses RLS.
 3. `npm install`
 4. `npm run seed` creates the 3 sample campaigns plus a sample rep (Alex Rivera) linked to "US SaaS CTO" and "Voice AI Founders" (idempotent; re-running also adds missing rep links).
-5. `npm start` (or `npm run dev`), default port 3000.
-6. Optional: `npm run seed:demo` builds the demo pipeline by running fictional prospects through the **real** agents (about 40 DronaHQ calls, several minutes; nothing is sent anywhere). Per campaign, the sample profile is the "hero" taken through research, ICP, strategy, personalisation, dispatch, a positive reply and a follow-up, plus three more at other depths: one that stops after ICP, one dispatched with no reply (`contacted`), and one whose reply needs a human (a pending `reply_escalation` approval). It is resumable and skips any step already done, and it switches paused campaigns to live for the run and puts them back afterwards. The kill switch must be off.
+5. **Create the team logins:** copy `db/team.example.json` to `db/team.json` (git-ignored) and list your team, then `npm run seed:users`. It prints each new account's random password once; nothing is stored. Run it again after `db/schema.sql` has created the `profiles` table so it also fills that (see Login below).
+6. `npm start` (or `npm run dev`), default port 3000, then sign in at http://localhost:3000/.
+7. Optional: `npm run seed:demo` builds the demo pipeline by running fictional prospects through the **real** agents (about 40 DronaHQ calls, several minutes; nothing is sent anywhere). Per campaign, the sample profile is the "hero" taken through research, ICP, strategy, personalisation, dispatch, a positive reply and a follow-up, plus three more at other depths: one that stops after ICP, one dispatched with no reply (`contacted`), and one whose reply needs a human (a pending `reply_escalation` approval). It is resumable and skips any step already done, and it switches paused campaigns to live for the run and puts them back afterwards. The kill switch must be off.
 
 Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBHOOK_URL` / `_KEY` pair for each of
 `ICP`, `RESEARCH`, `PERSONALIZE`, `STRATEGY`, `CONVERSATION`, `FOLLOWUP`, `VOICE`.
@@ -18,13 +19,24 @@ Environment: `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and a `DRONAHQ_<AGENT>_WEBH
 
 ```
 app.js / server.js   Express app (exported for reuse) / listener
-db/                  schema.sql, supabase.js client, seed.js
+db/                  schema.sql, supabase.js client, seed.js, seed-users.js (team logins)
 routes/              one router per resource
 orchestrator/        gate.js (pre-send gate), one module per agent step, common.js (step runner + parser),
                      history.js (recent-activity prompt section), channels.js (enabled channels + safety net)
 agents/dronaHQ.js    DronaHQ webhook client
-lib/                 http.js (validation + error mapping), enums.js
+lib/                 http.js (validation + error mapping), enums.js, auth.js (session check, login throttling)
 ```
+
+## Login (Supabase Auth)
+
+Every API route needs a signed-in team member; a request without a session gets **401** and no data (before its body is parsed, and for unknown routes too). Only these are reachable without one: the static UI files (the login page is part of them and holds no data), `POST /auth/login`, `POST /auth/logout`, and a bare `GET /health` that returns `{"ok":true}`.
+
+- **Sign in:** `POST /auth/login { email, password }` (email + password, Supabase Auth). The backend gets the session from Supabase and sets two **HttpOnly, SameSite=Lax** cookies (`sdr_at` access token, `sdr_rt` refresh token), plus `Secure` behind https. The tokens never appear in JSON or in anything JavaScript can read. An expired access token is renewed transparently from the refresh cookie. API clients can instead send `Authorization: Bearer <Supabase access token>`.
+- **Sign out:** `POST /auth/logout` revokes the session at Supabase (the access token stops working immediately, also for anyone who copied it) and clears the cookies. `GET /auth/me` returns `{ id, email, display_name, role, member_since }`.
+- **Wrong password or unknown email** both answer 401 "Invalid email or password"; 8 failed attempts per account and IP in 15 minutes -> 429. If Supabase Auth itself is unreachable the API answers 503, not 401, so an outage doesn't look like being logged out.
+- **Membership:** a valid Supabase user is not enough (Supabase lets anyone with the project's public key sign up). A user must be a *team member*: a row in the `profiles` table (`id` = the auth user, `display_name`, `role`), created only by the backend (`npm run seed:users`, service key). Until `db/schema.sql` has created that table, an admin-set `app_metadata.role` marks a member instead (users can't edit `app_metadata`). Once the table exists it is authoritative: delete a profile row and that person loses access at once. A valid non-member gets 403.
+- **RLS:** `db/schema.sql` adds `is_team_member()` and one policy per data table letting any signed-in **team member** read and write everything (one shared team; per-user or per-tenant restriction is deliberately not built). Anonymous users and non-members get nothing. Note this also lets a member use their own session against Supabase directly, including the kill switch row in `global_settings`.
+- **Accounts:** `npm run seed:users` reads `db/team.json`, creates missing accounts (confirmed, no email sent) with random passwords shown once, and refreshes names and roles; `--reset` sets new passwords; `SEED_PASSWORD_<NAME>` picks one.
 
 ## CRUD endpoints
 
@@ -65,7 +77,7 @@ List endpoints accept `limit` (default 100, max 500) and `offset`, plus simple f
 
 ## Control-plane UI
 
-`npm start`, then open http://localhost:3000/. The UI is three static files served by the same Express app: [frontend/index.html](frontend/index.html) (markup), [frontend/styles.css](frontend/styles.css) and [frontend/app.js](frontend/app.js), so it talks to the API on the same origin (no CORS). Wired to live data: campaigns (list, Launch/Pause/Resume, create, duplicate, channel switches), the kill switch, prospects (per campaign and merged across campaigns), activity feed, analytics (from `cost-report`), prompt versions, per-campaign agent pause, approvals, reps, the suppression list and conversations (from each prospect's last classified reply). Also wired: the Integrations page (Gmail, Groq and Tavily show Connected only when the backend reports their credentials set; Gmail also needs its login accepted), the campaign Prospects tab buttons **Discover prospects** (safe: web search only) and **Discover & qualify** (amber outline; always asks first, because it runs the real DronaHQ agents and spends credits), and a Settings toggle for **Autonomous mode** (off by default, turning it on asks first). The Agents page numbers (processed, success rate, cost today, errors, last activity) are computed from the activities table by `GET /agents/stats`; there is no latency figure because activities have no duration field. The Knowledge page is still a static placeholder. The feed re-polls every 15s.
+`npm start`, then open http://localhost:3000/. The UI opens on a real login page (no session, no data: it asks only `GET /auth/me`) and, once signed in, shows the real user in the sidebar and on the Account page. A 401 from any request (session expired or revoked) sends you back to the login page. The UI is three static files served by the same Express app: [frontend/index.html](frontend/index.html) (markup), [frontend/styles.css](frontend/styles.css) and [frontend/app.js](frontend/app.js), so it talks to the API on the same origin (no CORS). Wired to live data: campaigns (list, Launch/Pause/Resume, create, duplicate, channel switches), the kill switch, prospects (per campaign and merged across campaigns), activity feed, analytics (from `cost-report`), prompt versions, per-campaign agent pause, approvals, reps, the suppression list and conversations (from each prospect's last classified reply). Also wired: the Integrations page (Gmail, Groq and Tavily show Connected only when the backend reports their credentials set; Gmail also needs its login accepted), the campaign Prospects tab buttons **Discover prospects** (safe: web search only) and **Discover & qualify** (amber outline; always asks first, because it runs the real DronaHQ agents and spends credits), and a Settings toggle for **Autonomous mode** (off by default, turning it on asks first). The Agents page numbers (processed, success rate, cost today, errors, last activity) are computed from the activities table by `GET /agents/stats`; there is no latency figure because activities have no duration field. The Knowledge page is still a static placeholder. The feed re-polls every 15s.
 
 ## Orchestrator endpoints
 

@@ -4,3 +4,6 @@ node_modules/
 
 # Claude Code session lock (its own scheduler bookkeeping, not project code)
 .claude/scheduled_tasks.lock
+
+# Real team emails for db/seed-users.js (copy db/team.example.json)
+db/team.json
