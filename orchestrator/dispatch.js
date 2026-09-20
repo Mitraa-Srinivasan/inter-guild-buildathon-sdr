@@ -68,7 +68,7 @@ async function runDispatch(campaignProspectId, channelInput) {
     try {
       const sent = await sendRedirectedEmail({ intended: { name: cp.prospect.name, email: real.to }, subject: real.subject, text: real.body });
       await supabase.from('activities').update({
-        output_summary: `SENT via Gmail SMTP to ${sent.sentTo} (redirected: written for ${sent.intendedFor}, nothing was sent to them). Message id ${sent.messageId}. Server: ${sent.response}`,
+        output_summary: `SENT via Gmail SMTP to ${sent.sentTo} (redirected: written for ${sent.intendedFor}, nothing was sent to them). Message id ${sent.messageId}. Server: ${sent.response}${sent.bccCopy === true ? '. A blind copy went to the fixed audit address.' : sent.bccCopy === false ? '. The blind copy to the audit address was refused by Gmail; the email itself was sent.' : ''}`,
       }).eq('id', claim.activity_id);
       context = { ...context, email_sent: { at: new Date().toISOString(), message_id: sent.messageId, sent_to: sent.sentTo, intended_for: sent.intendedFor, subject: real.subject, redirected: true } };
     } catch (err) {
