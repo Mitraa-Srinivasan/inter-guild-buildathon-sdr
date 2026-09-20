@@ -1,5 +1,3 @@
-# inter-guild-buildathon-sdr
-
 # SDR OS
 
 An autonomous, multi-channel Sales Development Representative system, built for the DronaHQ x Tech Contingent (IIT Madras) Inter Guild Buildathon. Seven agents — hosted and run on the DronaHQ Agentic Platform — research, qualify, personalise, and follow up with prospects across three independent campaigns, while a human manager stays in control through a purpose-built
