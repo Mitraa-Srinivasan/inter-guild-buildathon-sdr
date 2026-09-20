@@ -290,7 +290,7 @@ async function refreshFor(p){
       // Swap the list in only once everything is loaded, so a click in the meantime never sees an undecorated campaign.
       const rows=await apiAll('/campaigns');
       await Promise.all([loadMeetings(),loadCampReps(),...rows.map(c=>loadCampData(c.id))]);
-      CAMPAIGNS=rows;
+      CAMPAIGNS=rows;rebuildAll(); // decorate at once: the user may already have left this page, and raw rows must never be left behind
     }
     else if(p==='prospects'||p==='conversations')await Promise.all([loadApprovals(),...ids.map(loadCampData)]);
     else if(p==='tasks')await loadApprovals();
@@ -298,8 +298,8 @@ async function refreshFor(p){
     else if(p==='agents')await Promise.all([loadAgentStats(),...ids.map(loadCampData)]);
     else if(p==='settings')await Promise.all([loadKill(),loadReps(),loadSuppression(),loadCampReps(),loadGuard(),loadChannels(),loadAutonomous()]);
     else return;
-    if(S.page!==p)return;
-    rebuildAll();render();
+    rebuildAll();if(S.page!==p)return; // fresh data always goes into the derived numbers; only the redraw depends on where the user is
+    render();
   }catch(e){toast(e.message)}
 }
 async function refreshCamp(id,tab){
@@ -923,10 +923,21 @@ function render(){
   const focusId=document.activeElement&&document.activeElement.id;
   const y=window.scrollY;
   // The app itself (sidebar, pages, data) only ever renders for a signed-in user; everyone else gets the login page or a plain screen.
-  document.getElementById('root').innerHTML=!S.authChecked?plainScreen('<div class="empty">Loading…</div>')
+  // If drawing throws, the old page would stay on screen with live-looking buttons that do nothing (and the caller, e.g. go(), would
+  // abort). So: rebuild the derived numbers and retry once, and if that fails too, say so on screen with a Reload button.
+  const draw=()=>!S.authChecked?plainScreen('<div class="empty">Loading…</div>')
     :S.user?(S.ready?body():bootScreen())
     :S.loadError?plainScreen(`<div class="empty"><p style="margin-bottom:12px">Couldn't reach the backend.</p><p class="mute" style="margin-bottom:16px">${esc(S.loadError)}</p><button class="btn primary" data-act="retry">Retry</button></div>`)
     :loginPage();
+  let html;
+  try{html=draw()}catch(e){
+    console.error('render failed; rebuilding and retrying',e);
+    try{rebuildAll();html=draw()}catch(e2){
+      console.error('render failed again',e2);
+      html=plainScreen('<div class="empty"><p style="margin-bottom:12px">Something went wrong drawing this page.</p><p class="mute" style="margin-bottom:16px">'+esc(e2.message)+'</p><button class="btn primary" data-act="retry">Reload data</button></div>');
+    }
+  }
+  document.getElementById('root').innerHTML=html;
   for(const [id,v] of Object.entries(typed)){const el=document.getElementById(id);if(el)el.value=v}
   if(focusId)document.getElementById(focusId)?.focus();
   else if(S.authChecked&&!S.user&&!S.loadError)(document.getElementById('login-email')?.value?document.getElementById('login-password'):document.getElementById('login-email'))?.focus();
@@ -938,7 +949,8 @@ function go(p){S.page=p;S.campId=null;S.pid=null;render();refreshFor(p)}
 // Runs an async action once at a time; any failure is shown as a toast with the backend's message.
 async function act(fn){
   if(S.busy)return;S.busy=true;
-  try{await fn()}catch(e){toast(e.message||'Something went wrong')}finally{S.busy=false}
+  // After a failure, redraw: an action may already have changed state (e.g. closed its dialog) before it threw, and the screen must match.
+  try{await fn()}catch(e){toast(e.message||'Something went wrong');render()}finally{S.busy=false}
 }
 async function setStatus(id,status,msg){setCampaign(await api('PATCH',`/campaigns/${id}/status`,{status}));toast(msg);render()}
 document.addEventListener('click',e=>{
