@@ -15,6 +15,7 @@ app.use('/campaigns', require('./routes/campaigns'));
 app.use('/prospects', require('./routes/prospects'));
 app.use('/campaign-prospects', require('./routes/campaignProspects'));
 app.use('/activities', require('./routes/activities'));
+app.use('/agents', require('./routes/agents'));
 app.use('/reps', require('./routes/reps'));
 app.use('/campaign-reps', require('./routes/campaignReps'));
 app.use('/suppression-list', require('./routes/suppressionList'));

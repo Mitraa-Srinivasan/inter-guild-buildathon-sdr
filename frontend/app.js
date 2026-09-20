@@ -41,13 +41,14 @@ let PROS=[];
 const AI_L={active:'Active',paused:'Paused',rejected:'Rejected','needs-human':'Needs human','handed-off':'Handed off'};
 
 const AGENTS=[
- {id:'icp',name:'ICP Fitment',icon:'analytics',task:'Scoring 6 prospects against ICP v3',proc:182,ok:'94%',cost:'$0.41',lat:'1.8s',err:1,last:'4s ago'},
- {id:'research',name:'Research & Enrichment',icon:'search',task:'Enriching Northwind Labs (funding, hiring, stack)',proc:141,ok:'97%',cost:'$0.68',lat:'6.4s',err:3,last:'9s ago'},
- {id:'strategy',name:'Outreach Strategy',icon:'bolt',task:'Choosing channel and timing for 4 prospects',proc:96,ok:'91%',cost:'$0.09',lat:'1.1s',err:0,last:'22s ago'},
- {id:'personalisation',name:'Personalisation',icon:'email',task:'Drafting email for Sarah Chen, cites funding round',proc:88,ok:'89%',cost:'$0.68',lat:'3.9s',err:2,last:'12s ago'},
- {id:'conversation',name:'Conversation',icon:'conversations',task:'Reading 3 new replies across email and LinkedIn',proc:47,ok:'92%',cost:'$0.20',lat:'2.2s',err:1,last:'31s ago'},
- {id:'voice',name:'Voice SDR (simulated)',icon:'voice',task:'Idle until 2:00 PM IST call window',proc:12,ok:'83%',cost:'$0.03',lat:'0.9s',err:0,last:'18m ago'},
- {id:'follow',name:'Follow-up',icon:'clock',task:'Queueing 11 day-3 follow-ups',proc:63,ok:'95%',cost:'$0.07',lat:'1.3s',err:0,last:'1m ago'},
+ // Identity only. Every number on the Agents page comes from GET /agents/stats (the activities table), never from here.
+ {id:'icp',name:'ICP Fitment',icon:'analytics'},
+ {id:'research',name:'Research & Enrichment',icon:'search'},
+ {id:'strategy',name:'Outreach Strategy',icon:'bolt'},
+ {id:'personalisation',name:'Personalisation',icon:'email'},
+ {id:'conversation',name:'Conversation',icon:'conversations'},
+ {id:'voice',name:'Voice SDR (simulated)',icon:'voice'},
+ {id:'follow',name:'Follow-up',icon:'clock'},
 ];
 
 
@@ -210,6 +211,11 @@ async function loadHealth(){
 async function loadSpend(){
   try{S.spend=await api('GET','/activities/spend?since='+encodeURIComponent(new Date(new Date().setHours(0,0,0,0)).toISOString()))}catch(_){}
 }
+// Per-agent numbers for the Agents page, computed by the backend from the activities table ("today" = local midnight, like spend).
+async function loadAgentStats(){
+  try{S.agentStats=await api('GET','/agents/stats?since='+encodeURIComponent(new Date(new Date().setHours(0,0,0,0)).toISOString()));S.agentStatsErr=null}
+  catch(e){S.agentStatsErr=e.message}
+}
 async function loadGuard(){try{S.guard=await api('GET','/global-settings/guardrails')}catch(_){}}
 // Global channel pause. A 503 means the database column has not been added yet (run db/schema.sql).
 async function loadChannels(){
@@ -246,7 +252,7 @@ function taskFromApproval(a){
 async function loadApprovals(){TASKS=(await apiAll('/approvals?status=pending')).map(taskFromApproval)}
 async function loadAll(){
   CAMPAIGNS=await apiAll('/campaigns');
-  await Promise.all([loadKill(),loadApprovals(),loadMeetings(),loadCampReps(),loadReps(),loadSuppression(),loadHealth(),loadSpend(),loadGuard(),loadChannels(),loadAutonomous(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
+  await Promise.all([loadKill(),loadApprovals(),loadMeetings(),loadCampReps(),loadReps(),loadSuppression(),loadHealth(),loadSpend(),loadAgentStats(),loadGuard(),loadChannels(),loadAutonomous(),...CAMPAIGNS.map(c=>loadCampData(c.id))]);
   rebuildAll();
 }
 async function boot(){
@@ -268,6 +274,7 @@ async function refreshFor(p){
     else if(p==='prospects'||p==='conversations')await Promise.all([loadApprovals(),...ids.map(loadCampData)]);
     else if(p==='tasks')await loadApprovals();
     else if(p==='analytics')await Promise.all([loadMeetings(),loadCosts(ids),...ids.map(loadCampData)]);
+    else if(p==='agents')await Promise.all([loadAgentStats(),...ids.map(loadCampData)]);
     else if(p==='settings')await Promise.all([loadKill(),loadReps(),loadSuppression(),loadCampReps(),loadGuard(),loadChannels(),loadAutonomous()]);
     else return;
     if(S.page!==p)return;
@@ -619,18 +626,35 @@ function discoveryCard(){
     <div style="display:flex;gap:7px"><button class="btn sm" style="flex:1" data-act="agent-logs" data-id="discovery">Logs</button><button class="btn sm" style="flex:1" data-nav="campaigns">Run from a campaign</button></div>
   </section>`;
 }
+// The real numbers for one agent from GET /agents/stats: { processed, success_rate, errors, cost_today, last_activity, ... }.
+// null while they load or if the request failed, so the card shows a dash rather than any number it can't back up.
+const agentStat=id=>(S.agentStats&&S.agentStats.agents&&S.agentStats.agents[id])||null;
+// 100% only when every activity succeeded; otherwise rounded down so 199 of 200 never reads as 100%.
+const pctOf=r=>r==null?'—':r>=1?'100%':(Math.floor(r*1000)/10)+'%';
+// The agent's newest activity, from the recent activities already loaded per campaign: "Scored ICP fit · Priya Menon, CIO".
+function latestActivityLine(type){
+  let best=null,bc=null;
+  for(const c of CAMPAIGNS)for(const a of S.acts[c.id]||[])if(a.agent_type===type&&(!best||a.created_at>best.created_at)){best=a;bc=c}
+  return best?[actTitle(best),actWho(best,bc)].filter(Boolean).join(' · '):null;
+}
+function agentStatCell(v,label,style=''){return `<div style="${style}"><div class="serif" style="font-size:16px;font-weight:600">${v}</div><div class="mute" style="font-size:10.5px">${label}</div></div>`}
+function agentStatsNote(){return S.agentStatsErr&&!S.agentStats?`<p class="mute" style="font-size:12px;margin-bottom:12px">Could not load agent stats (${esc(S.agentStatsErr)}). Numbers are hidden rather than guessed.</p>`:''}
 function agentsPage(){
   return shell(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-t">Agents</h1><span class="mute" style="font-size:12px">Shared across all campaigns · 7 agents configured in DronaHQ, plus Discovery on Groq + Tavily</span></div>
-  <div class="grid gauto">${AGENTS.map(a=>`<section class="card" style="padding:17px">
+  ${agentStatsNote()}<div class="grid gauto">${AGENTS.map(a=>{const st=agentStat(a.id),line=latestActivityLine(a.id);return `<section class="card" style="padding:17px" data-agent-card="${a.id}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="display:flex;gap:10px;align-items:center"><div style="width:30px;height:30px;border-radius:9px;background:var(--bg-elev2);display:grid;place-items:center">${ic(a.icon,15)}</div><b style="font-size:13.5px">${a.name}</b></div><span class="pill live"><span class="dot pulse-true"></span>Live</span></div>
-    <p class="mute" style="font-size:11.5px;margin-bottom:13px">${esc(a.task)}</p>
+    <p class="mute" style="font-size:11.5px;margin-bottom:13px">${line?esc(line):'No activity yet'}</p>
+    <div class="grid g3" style="gap:10px;margin-bottom:10px">
+      ${agentStatCell(st?st.processed:'…','Processed')}
+      ${agentStatCell(st?pctOf(st.success_rate):'…','Success rate')}
+      ${agentStatCell(st?money(st.cost_today):'…','Cost today (est.)')}
+    </div>
     <div class="grid g3" style="gap:10px;margin-bottom:13px">
-      <div><div class="serif" style="font-size:16px;font-weight:600">${a.proc}</div><div class="mute" style="font-size:10.5px">Processed</div></div>
-      <div><div class="serif" style="font-size:16px;font-weight:600">${a.ok}</div><div class="mute" style="font-size:10.5px">Success rate</div></div>
-      <div><div class="serif" style="font-size:16px;font-weight:600">${a.cost}</div><div class="mute" style="font-size:10.5px">Cost today (est.)</div></div>
+      ${agentStatCell(st?`<span${st.errors?' style="color:var(--red)"':''}>${st.errors}</span>`:'…','Errors')}
+      ${agentStatCell(st?(st.last_activity?ago(st.last_activity):'—'):'…','Last activity','grid-column:span 2')}
     </div>
     <div style="display:flex;gap:7px"><button class="btn sm" style="flex:1" data-act="agent-logs" data-id="${a.id}">Logs</button><button class="btn sm" style="flex:1" data-nav="campaigns">Configure</button></div>
-  </section>`).join('')}${discoveryCard()}</div>`);
+  </section>`}).join('')}${discoveryCard()}</div>`);
 }
 
 /* ================= TASKS ================= */
