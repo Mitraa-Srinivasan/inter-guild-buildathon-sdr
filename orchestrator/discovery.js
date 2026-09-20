@@ -13,10 +13,10 @@ const MAX_QUERIES = 3;
 const RESULTS_PER_QUERY = 6;
 const SNIPPET_CHARS = 1000;
 
-// Estimated cost in USD (list prices, not measured): Groq llama-3.3-70b at $0.59 / $0.79 per million input / output tokens,
+// Estimated cost in USD (list prices, not measured): Groq gpt-oss-120b at about $0.15 / $0.60 per million input / output tokens,
 // Tavily basic search at $0.008 per search credit.
-const GROQ_IN_PER_TOKEN = 0.59 / 1e6;
-const GROQ_OUT_PER_TOKEN = 0.79 / 1e6;
+const GROQ_IN_PER_TOKEN = 0.15 / 1e6;
+const GROQ_OUT_PER_TOKEN = 0.60 / 1e6;
 const TAVILY_PER_SEARCH = 0.008;
 
 const arr = (v) => (Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [v]);

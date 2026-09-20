@@ -89,7 +89,7 @@ agent's own instructions on the DronaHQ side. Rows with no LLM (`dispatch`) and 
 
 ## Prospect discovery
 
-Needs `GROQ_API_KEY` and `TAVILY_API_KEY` in `.env` (optionally `GROQ_MODEL`, default `llama-3.3-70b-versatile`). Neither is a DronaHQ service, so **discovery spends no DronaHQ credits**; without the keys it answers 503.
+Needs `GROQ_API_KEY` and `TAVILY_API_KEY` in `.env` (optionally `GROQ_MODEL`, default `openai/gpt-oss-120b`). Neither is a DronaHQ service, so **discovery spends no DronaHQ credits**; without the keys it answers 503.
 
 | Endpoint | What it does |
 | --- | --- |

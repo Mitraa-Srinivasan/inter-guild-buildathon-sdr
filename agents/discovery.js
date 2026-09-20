@@ -6,7 +6,7 @@ const { HttpError } = require('../lib/http');
 const TIMEOUT_MS = 30000;
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const TAVILY_URL = 'https://api.tavily.com/search';
-const DEFAULT_GROQ_MODEL = 'llama-3.3-70b-versatile';
+const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
 
 const groqModel = () => process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
 
