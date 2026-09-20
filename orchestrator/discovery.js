@@ -1,6 +1,6 @@
 const { supabase, unwrap } = require('../db/supabase');
 const { HttpError, notFound } = require('../lib/http');
-const { formatIcpCriteria } = require('./icp');
+const { formatIcpCriteria } = require('./icpFormat');
 const { discoveryConfig, tavilySearch, groqJson } = require('../agents/discovery');
 
 // Prospect discovery: turn a campaign's ICP into web searches (Tavily), have an LLM (Groq) pull out the people the results
